@@ -25,6 +25,14 @@ class Database:
                 )
             """)
             
+            # Add certificate columns if they don't exist
+            try:
+                cursor.execute("ALTER TABLE sessions ADD COLUMN wg_private_key TEXT")
+                cursor.execute("ALTER TABLE sessions ADD COLUMN wg_certificate TEXT")
+                cursor.execute("ALTER TABLE sessions ADD COLUMN cert_expires_at INTEGER")
+            except sqlite3.OperationalError:
+                pass
+            
             # Servers table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS servers (
@@ -56,6 +64,19 @@ class Database:
             if row:
                 return dict(row)
             return None
+
+    def update_certificate(self, wg_private_key: str, wg_certificate: str, expires_at: int):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE sessions SET 
+                    wg_private_key = ?, 
+                    wg_certificate = ?, 
+                    cert_expires_at = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = 1
+            """, (wg_private_key, wg_certificate, expires_at))
+            conn.commit()
 
     def save_servers(self, servers_list: List[Dict[str, Any]]):
         with sqlite3.connect(self.db_path) as conn:

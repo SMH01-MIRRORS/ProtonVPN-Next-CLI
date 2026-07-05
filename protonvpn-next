@@ -62,11 +62,20 @@ def do_register_cert():
     api = ProtonVpnApi()
     try:
         response = api.register_cert(pub_key_pem)
+        
+        cert_data = response.get('Certificate', '')
+        expires_at = response.get('ExpirationTime', 0)
+        
+        db = Database()
+        db.update_certificate(priv_key, cert_data, expires_at)
+        
         print("\n=== Certificate Registered ===")
-        print(f"IPv4: {response.get('IPv4')}")
-        print(f"IPv6: {response.get('IPv6')}")
-        print(f"DNS:  {response.get('DNS')}")
-        print(f"Your Private Key (Save this!): {priv_key}")
+        print(f"Status: Successfully saved to local database.")
+        from datetime import datetime
+        if expires_at:
+            dt = datetime.fromtimestamp(expires_at).strftime('%Y-%m-%d %H:%M:%S')
+            print(f"Expiration: {dt}")
+        print(f"Certificate Length: {len(cert_data)} bytes")
         print("==============================")
     except Exception as e:
         print(f"\n[ERROR] {str(e)}")
