@@ -3,6 +3,8 @@
 import argparse
 import sys
 from protonvpn_cli.auth import ProtonAuthApi
+from protonvpn_cli.vpn import ProtonVpnApi
+from protonvpn_cli.database import Database
 
 def do_guest_login():
     print("Initiating ProtonVPN Guest Login...")
@@ -19,17 +21,59 @@ def do_guest_login():
         print(f"\n[ERROR] {str(e)}")
         sys.exit(1)
 
+def do_fetch_servers():
+    print("Fetching VPN servers from Proton API...")
+    api = ProtonVpnApi()
+    try:
+        servers = api.fetch_servers()
+        print(f"\n[SUCCESS] Successfully fetched and cached {len(servers)} servers.")
+    except Exception as e:
+        print(f"\n[ERROR] {str(e)}")
+        sys.exit(1)
+
+def do_status():
+    db = Database()
+    session = db.get_session()
+    print("=== ProtonVPN CLI Status ===")
+    if session and session.get("access_token"):
+        print("[Auth]   Status: LOGGED IN")
+        print(f"[Auth]   UID:    {session.get('uid', 'N/A')}")
+    else:
+        print("[Auth]   Status: NOT LOGGED IN")
+    
+    count = db.get_server_count()
+    print(f"[Server] Cached: {count} servers")
+    print("============================")
+
+def do_version():
+    print("12.0.0-alpha2")
+
 def main():
     parser = argparse.ArgumentParser(description="ProtonVPN Next CLI")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
-    # Guest command
-    guest_parser = subparsers.add_parser("guest", help="Log in via guest access (Android emulation)")
+    # guest command
+    subparsers.add_parser("guest", help="Log in via guest access (Android emulation)")
+    
+    # fetch-servers command
+    subparsers.add_parser("fetch-servers", help="Fetch and cache VPN servers list")
+    
+    # status command
+    subparsers.add_parser("status", help="Show current login and server cache status")
+    
+    # version command
+    subparsers.add_parser("version", help="Show CLI version")
     
     args = parser.parse_args()
     
     if args.command == "guest":
         do_guest_login()
+    elif args.command == "fetch-servers":
+        do_fetch_servers()
+    elif args.command == "status":
+        do_status()
+    elif args.command == "version":
+        do_version()
     else:
         parser.print_help()
 

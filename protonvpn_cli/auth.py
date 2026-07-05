@@ -3,6 +3,7 @@ import urllib.request
 import urllib.error
 from typing import Dict, Any, Tuple
 from .device_info import DeviceInfoProvider
+from .database import Database
 
 class ProtonAuthApi:
     BASE_URL = "https://vpn-api.proton.me"
@@ -83,5 +84,13 @@ class ProtonAuthApi:
         
         guest_response["AccessToken"] = final_token
         guest_response["UID"] = final_uid
+        
+        db = Database()
+        db.save_session(
+            access_token=final_token,
+            refresh_token=guest_response.get("RefreshToken", ""),
+            uid=final_uid,
+            user_id=guest_response.get("UserID", "")
+        )
         
         return guest_response
