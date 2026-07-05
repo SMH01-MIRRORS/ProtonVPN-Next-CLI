@@ -46,3 +46,36 @@ class ProtonVpnApi:
             raise Exception(f"HTTP {e.code}: {error_body}")
         except urllib.error.URLError as e:
             raise Exception(f"Network error: {e.reason}")
+
+    def register_cert(self, public_key: str) -> Dict[str, Any]:
+        session = self.db.get_session()
+        if not session or not session.get("access_token"):
+            raise Exception("No active session. Please run 'guest' login first.")
+
+        url = f"{self.BASE_URL}/vpn/v1/certificate"
+        
+        headers = {
+            "Authorization": f"Bearer {session['access_token']}",
+            "x-pm-uid": session['uid'],
+            "User-Agent": self.device_info.get_spoofed_user_agent(),
+            "x-pm-appversion": f"android-vpn@{DeviceInfoProvider.SPOOFED_APP_VERSION}-dev+play",
+            "x-pm-apiversion": "4",
+            "Content-Type": "application/json",
+            "Accept": "application/vnd.protonmail.v1+json",
+        }
+        
+        payload = {"ClientPublicKey": public_key}
+        data = json.dumps(payload).encode('utf-8')
+        
+        req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+        try:
+            with urllib.request.urlopen(req) as response:
+                resp_data = json.loads(response.read().decode('utf-8'))
+                if resp_data.get("Code") != 1000:
+                    raise Exception(f"Failed to register cert. Code: {resp_data.get('Code')} Error: {resp_data}")
+                return resp_data
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8')
+            raise Exception(f"HTTP {e.code}: {error_body}")
+        except urllib.error.URLError as e:
+            raise Exception(f"Network error: {e.reason}")
