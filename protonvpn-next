@@ -684,7 +684,7 @@ def do_autosetup(proxy_override=None):
         pass
         
     print("\n=== Auto-Setup Complete ===")
-    print("You can now connect using: ./protonvpn-next connect <server_name>")
+    print("You can now connect using: connect <server_name>")
 
 def ensure_daemon_running():
     db = Database()
@@ -876,6 +876,21 @@ def run_cli(args_list=None):
         ensure_daemon_running()
 
 def main():
+    if not sys.stdin.isatty() and sys.platform != "win32":
+        import shutil
+        terminals = [
+            ("gnome-terminal", ["--"]),
+            ("konsole", ["-e"]),
+            ("xfce4-terminal", ["-e"]),
+            ("xterm", ["-e"]),
+            ("alacritty", ["-e"]),
+            ("kitty", ["-e"])
+        ]
+        for term, args in terminals:
+            if shutil.which(term):
+                subprocess.Popen([term] + args + [sys.executable] + sys.argv[1:])
+                sys.exit(0)
+                
     if len(sys.argv) == 1:
         print("========================================")
         print("        Welcome to VPN-Next CLI")
