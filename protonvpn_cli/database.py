@@ -101,3 +101,10 @@ class Database:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM servers")
             return cursor.fetchone()[0]
+
+    def get_all_servers(self) -> List[Dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM servers ORDER BY country, city, name")
+            return [dict(row) for row in cursor.fetchall()]

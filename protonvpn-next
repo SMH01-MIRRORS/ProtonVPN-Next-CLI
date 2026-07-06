@@ -46,6 +46,49 @@ def do_status():
     print(f"[Server] Cached: {count} servers")
     print("============================")
 
+def do_list_servers():
+    db = Database()
+    servers = db.get_all_servers()
+    if not servers:
+        print("No servers found. Run 'fetch-servers' first.")
+        return
+
+    tree = {}
+    for s in servers:
+        country = s['country'] or "Unknown"
+        city = s['city'] or "Unknown"
+        name = s['name']
+        tier = s['tier']
+        
+        if country not in tree:
+            tree[country] = {}
+        if city not in tree[country]:
+            tree[country][city] = []
+        tree[country][city].append((name, tier))
+
+    print("ProtonVPN Servers")
+    print("=================")
+    countries = sorted(tree.keys())
+    for i, country in enumerate(countries):
+        is_last_country = i == len(countries) - 1
+        c_prefix = "└── " if is_last_country else "├── "
+        print(f"{c_prefix}{country}")
+        
+        cities = sorted(tree[country].keys())
+        for j, city in enumerate(cities):
+            is_last_city = j == len(cities) - 1
+            city_pipe = "    " if is_last_country else "│   "
+            ci_prefix = "└── " if is_last_city else "├── "
+            print(f"{city_pipe}{ci_prefix}{city}")
+            
+            srvs = tree[country][city]
+            for k, (name, tier) in enumerate(srvs):
+                is_last_srv = k == len(srvs) - 1
+                srv_pipe = "    " if is_last_city else "│   "
+                s_prefix = "└── " if is_last_srv else "├── "
+                tier_str = f" [Tier {tier}]" if tier > 0 else " [Free]"
+                print(f"{city_pipe}{srv_pipe}{s_prefix}{name}{tier_str}")
+
 def do_version():
     print("12.0.0-alpha2")
 
@@ -92,6 +135,9 @@ def main():
     # fetch-servers command
     subparsers.add_parser("fetch-servers", help="Fetch and cache VPN servers list")
     
+    # list-servers command
+    subparsers.add_parser("list-servers", help="List cached VPN servers as a tree")
+
     # status command
     subparsers.add_parser("status", help="Show current login and server cache status")
     
@@ -107,6 +153,8 @@ def main():
         do_guest_login()
     elif args.command == "fetch-servers":
         do_fetch_servers()
+    elif args.command == "list-servers":
+        do_list_servers()
     elif args.command == "status":
         do_status()
     elif args.command == "version":
