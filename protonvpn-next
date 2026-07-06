@@ -223,7 +223,9 @@ def do_connect(server_name: str, awg_str: str):
     
     config = "\n".join(config_lines) + "\n"
     
-    # Save config to file just for debug
+    # Add delimiter to config for safety
+    config += "---END---\n"
+    
     config_path = os.path.expanduser("~/.config/protonvpn-next/connection.conf")
     with open(config_path, "w") as f:
         f.write(config)
@@ -236,6 +238,7 @@ def do_connect(server_name: str, awg_str: str):
         
     import subprocess
     import shutil
+    import os
     
     elevate_cmd = "sudo"
     if shutil.which("doas"):
@@ -249,27 +252,14 @@ def do_connect(server_name: str, awg_str: str):
     
     log_path = os.path.expanduser("~/.config/protonvpn-next/awg.log")
     
+    from protonvpn_cli.routing import RoutingManager
+    rm = RoutingManager(elevate_cmd)
+    
     try:
-        with open(log_path, "w") as log_file:
-            proc = subprocess.Popen([elevate_cmd, engine_path], stdin=subprocess.PIPE, stdout=log_file, stderr=subprocess.STDOUT, text=True)
-            # Write config and delimiter
-            proc.stdin.write(config)
-            proc.stdin.write("---END---\n")
-            proc.stdin.close()
-            
-            print(f"-> VPN Tunnel is starting. Logs: {log_path}")
-            
-            import time
-            from protonvpn_cli.routing import RoutingManager
-            time.sleep(1.5) # Wait for interface to appear
-            RoutingManager(elevate_cmd).setup_routing(vpn_ip=entry_ip)
-            
-            print("-> Press Ctrl+C to disconnect, or run './protonvpn-next disconnect' in another terminal.")
-            proc.wait()
+        rm.start_vpn(vpn_ip=entry_ip, engine_path=engine_path, config_path=config_path, log_path=log_path)
     except KeyboardInterrupt:
         print("\nDisconnecting...")
-        from protonvpn_cli.routing import RoutingManager
-        RoutingManager(elevate_cmd).teardown_routing()
+        rm.teardown_routing()
         subprocess.run([elevate_cmd, "pkill", "-f", "protonvpn-engine"])
         sys.exit(0)
 

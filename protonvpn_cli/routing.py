@@ -51,7 +51,7 @@ class RoutingManager:
                     return parts[2] # Gateway
         return None
 
-    def setup_routing(self, vpn_ip: str, awg_ip: str = "10.2.0.2", awg_iface: str = "awg0"):
+    def start_vpn(self, vpn_ip: str, engine_path: str, config_path: str, log_path: str, awg_ip: str = "10.2.0.2", awg_iface: str = "awg0"):
         print(f"-> Setting up traffic routing for {vpn_ip}...")
         
         state = {"vpn_ip": vpn_ip, "gw": None, "iface": None, "os": sys.platform}
@@ -61,34 +61,52 @@ class RoutingManager:
             gw = self._get_windows_default_gateway()
             if not gw:
                 print("[ERROR] Could not detect default Windows gateway.")
-                return
+                sys.exit(1)
                 
             state["gw"] = gw
+            with open(self.state_file, "w") as f:
+                json.dump(state, f)
             
-            # Add endpoint route
-            self._run_cmd([self.elevate_cmd, "route", "ADD", vpn_ip, "MASK", "255.255.255.255", gw])
-            # Override default route
-            self._run_cmd([self.elevate_cmd, "route", "ADD", "0.0.0.0", "MASK", "128.0.0.0", awg_ip])
-            self._run_cmd([self.elevate_cmd, "route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", awg_ip])
+            # Windows execution (assumes running as Admin)
+            with open(log_path, "w") as log_file:
+                proc = subprocess.Popen([engine_path], stdin=open(config_path, "r"), stdout=log_file, stderr=subprocess.STDOUT)
+                import time
+                time.sleep(1.5)
+                self._run_cmd(["route", "ADD", vpn_ip, "MASK", "255.255.255.255", gw])
+                self._run_cmd(["route", "ADD", "0.0.0.0", "MASK", "128.0.0.0", awg_ip])
+                self._run_cmd(["route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", awg_ip])
+                print("Routing configured successfully. All traffic is now secured.")
+                print("Press Ctrl+C to disconnect.")
+                proc.wait()
             
         else:
             gw, iface = self._get_linux_default_gateway()
             if not gw or not iface:
                 print("[ERROR] Could not detect default Linux gateway.")
-                return
+                sys.exit(1)
                 
             state["gw"] = gw
             state["iface"] = iface
             
-            # Route to VPN endpoint
-            self._run_cmd([self.elevate_cmd, "ip", "route", "add", vpn_ip, "via", gw, "dev", iface])
-            # Override default route
-            self._run_cmd([self.elevate_cmd, "ip", "route", "add", "0.0.0.0/1", "dev", awg_iface])
-            self._run_cmd([self.elevate_cmd, "ip", "route", "add", "128.0.0.0/1", "dev", awg_iface])
+            with open(self.state_file, "w") as f:
+                json.dump(state, f)
             
-        with open(self.state_file, "w") as f:
-            json.dump(state, f)
-        print("-> Routing configured successfully. All traffic is now secured.")
+            script = f"""
+{engine_path} < "{config_path}" > "{log_path}" 2>&1 &
+ENGINE_PID=$!
+# Wait for interface
+for i in $(seq 1 30); do
+    ip link show {awg_iface} >/dev/null 2>&1 && break
+    sleep 0.5
+done
+ip route add {vpn_ip} via {gw} dev {iface}
+ip route add 0.0.0.0/1 dev {awg_iface}
+ip route add 128.0.0.0/1 dev {awg_iface}
+echo "-> Routing configured successfully. All traffic is now secured."
+echo "-> Press Ctrl+C to disconnect, or run './protonvpn-next disconnect' in another terminal."
+wait $ENGINE_PID
+"""
+            subprocess.run([self.elevate_cmd, "sh", "-c", script])
 
     def teardown_routing(self):
         if not os.path.exists(self.state_file):
