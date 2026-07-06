@@ -321,6 +321,165 @@ def do_awg_logs():
     with open(log_path, "r") as f:
         print(f.read())
 
+def get_split_tunnel_config():
+    import json, os
+    config_path = os.path.join(get_config_dir(), "split_tunnel.json")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            try:
+                return json.load(f)
+            except:
+                pass
+    return {"exclude_lan": False, "split_items": []}
+
+def save_split_tunnel_config(config):
+    import json, os
+    config_path = os.path.join(get_config_dir(), "split_tunnel.json")
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=4)
+
+def do_exclude_lan(state):
+    config = get_split_tunnel_config()
+    config["exclude_lan"] = (state.lower() == "on")
+    save_split_tunnel_config(config)
+    print(f"-> Exclude LAN set to: {'ON' if config['exclude_lan'] else 'OFF'}")
+
+def do_split_tunneling(action, value):
+    config = get_split_tunnel_config()
+    items = config["split_items"]
+    
+    if action == "list":
+        print("=== Split Tunneling List ===")
+        print(f"Exclude LAN: {'ON' if config['exclude_lan'] else 'OFF'}")
+        for i, item in enumerate(items):
+            print(f"[{i}] {item['type'].upper()}: {item['value']}")
+        if not items:
+            print("No items added.")
+            
+    elif action == "add":
+        import re
+        if not value:
+            print("[ERROR] Value required for add.")
+            return
+            
+        is_ip = re.match(r"^(\d{1,3}\.){3}\d{1,3}(/\d{1,2})?$", value)
+        is_app = value.startswith("/") or value.startswith("C:\\") or value.endswith(".exe")
+        item_type = "ip" if is_ip else ("app" if is_app else "domain")
+        
+        if any(i['value'] == value for i in items):
+            print(f"-> {value} is already in the list.")
+            return
+            
+        items.append({"type": item_type, "value": value})
+        save_split_tunnel_config(config)
+        print(f"-> Added {item_type} to split tunneling: {value}")
+        
+    elif action == "remove":
+        if not value:
+            print("[ERROR] Value or index required for remove.")
+            return
+        
+        try:
+            idx = int(value)
+            if 0 <= idx < len(items):
+                removed = items.pop(idx)
+                save_split_tunnel_config(config)
+                print(f"-> Removed: {removed['value']}")
+                return
+        except ValueError:
+            pass
+            
+        for i, item in enumerate(items):
+            if item['value'] == value:
+                items.pop(i)
+                save_split_tunnel_config(config)
+                print(f"-> Removed: {value}")
+                return
+        print(f"[ERROR] Item '{value}' not found.")
+
+def do_novpn(command_args):
+    import os, subprocess, sys
+    import platform
+    if platform.system() == "Windows":
+        print("[ERROR] novpn is only supported on Linux.")
+        sys.exit(1)
+        
+    cgroup_path = "/sys/fs/cgroup/protonvpn_exclude"
+    if not os.path.exists(cgroup_path):
+        print("[ERROR] Split tunneling cgroup not found. Is VPN connected?")
+        sys.exit(1)
+        
+    import shutil
+    elevate_cmd = "sudo" if not shutil.which("doas") else "doas"
+    
+    # Add current PID to cgroup, then exec
+    pid = os.getpid()
+    try:
+        subprocess.run([elevate_cmd, "sh", "-c", f"echo {pid} > {cgroup_path}/cgroup.procs"], check=True)
+    except subprocess.CalledProcessError:
+        print("[ERROR] Failed to add process to cgroup. Make sure you have sudo/doas privileges.")
+        sys.exit(1)
+        
+    print(f"-> Launching bypassing VPN: {' '.join(command_args)}")
+    os.execvp(command_args[0], command_args)
+
+def do_pid_scanner():
+    import os, time, sys
+    
+    # Needs root
+    if os.geteuid() != 0:
+        sys.exit(1)
+        
+    cgroup_procs = "/sys/fs/cgroup/protonvpn_exclude/cgroup.procs"
+    if not os.path.exists(cgroup_procs):
+        sys.exit(1)
+        
+    config = get_split_tunnel_config()
+    apps = [i["value"] for i in config.get("split_items", []) if i["type"] == "app"]
+    
+    if not apps:
+        sys.exit(0)
+        
+    # We want to match basename or exact path
+    import collections
+    seen_pids = set()
+    
+    while True:
+        try:
+            for pid_dir in os.listdir("/proc"):
+                if not pid_dir.isdigit():
+                    continue
+                    
+                pid = pid_dir
+                if pid in seen_pids:
+                    continue
+                    
+                exe_path = os.path.join("/proc", pid, "exe")
+                try:
+                    target = os.readlink(exe_path)
+                except OSError:
+                    continue
+                    
+                match = False
+                for app in apps:
+                    if target == app or target.endswith("/" + app) or target.endswith("\\" + app):
+                        match = True
+                        break
+                        
+                if match:
+                    try:
+                        with open(cgroup_procs, "a") as f:
+                            f.write(pid + "\n")
+                        seen_pids.add(pid)
+                    except OSError:
+                        pass
+                        
+            time.sleep(3)
+        except KeyboardInterrupt:
+            break
+        except Exception:
+            time.sleep(3)
+
 def do_version():
     print("12.0.0-alpha2")
 
@@ -394,6 +553,22 @@ def main():
     # awg-logs command
     subparsers.add_parser("awg-logs", help="View AmneziaWG engine logs")
     
+    # exclude-lan command
+    parser_exclude_lan = subparsers.add_parser("exclude-lan", help="Exclude Local Area Network (LAN) from VPN tunnel")
+    parser_exclude_lan.add_argument("state", choices=["on", "off"], help="State (on/off)")
+    
+    # split-tunneling command
+    parser_split = subparsers.add_parser("split-tunneling", help="Manage split tunneling for apps, domains, and IPs")
+    parser_split.add_argument("action", choices=["list", "add", "remove"], help="Action to perform")
+    parser_split.add_argument("value", nargs="?", help="Domain, IP, or Absolute Path to app binary (for add/remove)")
+    
+    # novpn wrapper
+    parser_novpn = subparsers.add_parser("novpn", help="Run a command bypassing the VPN (Linux only)")
+    parser_novpn.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to run")
+    
+    # pid scanner (hidden internal command)
+    parser_scanner = subparsers.add_parser("_pid-scanner", help=argparse.SUPPRESS)
+    
     # version command
     subparsers.add_parser("version", help="Show CLI version")
 
@@ -424,6 +599,17 @@ def main():
         do_disconnect()
     elif args.command == "awg-logs":
         do_awg_logs()
+    elif args.command == "exclude-lan":
+        do_exclude_lan(args.state)
+    elif args.command == "split-tunneling":
+        do_split_tunneling(args.action, args.value)
+    elif args.command == "novpn":
+        if not args.cmd:
+            print("[ERROR] Command required for novpn")
+            sys.exit(1)
+        do_novpn(args.cmd)
+    elif args.command == "_pid-scanner":
+        do_pid_scanner()
     elif args.command == "version":
         do_version()
     elif args.command == "register-cert":
