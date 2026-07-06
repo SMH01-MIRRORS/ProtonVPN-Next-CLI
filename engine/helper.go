@@ -77,7 +77,7 @@ func main() {
 	}
 
 	// 3. Initialize AmneziaWG device
-	logger := device.NewLogger(device.LogLevelError, fmt.Sprintf("(%s) ", *ifaceName))
+	logger := device.NewLogger(device.LogLevelVerbose, fmt.Sprintf("(%s) ", *ifaceName))
 	dev := device.NewDevice(tdev, conn.NewDefaultBind(), logger)
 
 	// 4. Apply UAPI config
