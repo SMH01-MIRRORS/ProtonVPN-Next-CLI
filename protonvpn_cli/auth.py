@@ -6,10 +6,19 @@ from .device_info import DeviceInfoProvider
 from .database import Database
 
 class ProtonAuthApi:
-    BASE_URL = "https://vpn-api.proton.me"
-    
     def __init__(self):
         self.device_info = DeviceInfoProvider()
+        self.db = Database()
+        
+        bypass = self.db.get_setting("api_bypass", "0")
+        if bypass in ("1", "cloudflare"):
+            self.BASE_URL = "https://api.protonnext.qzz.io"
+        elif bypass in ("2", "netlify"):
+            self.BASE_URL = "https://shimmering-stroopwafel-51675e.netlify.app"
+        elif bypass in ("3", "deno"):
+            self.BASE_URL = "https://quick-bluejay-8760.smh01-mirrors.deno.net"
+        else:
+            self.BASE_URL = "https://vpn-api.proton.me"
         
         # Setup common headers according to NetworkModule.kt
         self.headers = {

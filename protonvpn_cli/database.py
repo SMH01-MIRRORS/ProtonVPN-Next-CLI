@@ -44,7 +44,33 @@ class Database:
                     raw_json TEXT
                 )
             """)
+            
+            # Settings table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            """)
             conn.commit()
+
+    def set_setting(self, key: str, value: str):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO settings (key, value)
+                VALUES (?, ?)
+            """, (key, value))
+            conn.commit()
+
+    def get_setting(self, key: str, default: str = None) -> str:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+            return default
 
     def save_session(self, access_token: str, refresh_token: str, uid: str, user_id: str):
         with sqlite3.connect(self.db_path) as conn:

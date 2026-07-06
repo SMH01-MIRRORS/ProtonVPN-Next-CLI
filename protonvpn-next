@@ -142,6 +142,30 @@ def do_fetch_locale(locale: str):
         print(f"[ERROR] Failed to fetch localized locations: {e}")
         sys.exit(1)
 
+def do_set_bypass(bypass: str):
+    db = Database()
+    bypass_lower = bypass.lower()
+    
+    mapping = {
+        "0": ("0", "Direct (vpn-api.proton.me)"),
+        "none": ("0", "Direct (vpn-api.proton.me)"),
+        "1": ("1", "Cloudflare Proxy (api.protonnext.qzz.io)"),
+        "cloudflare": ("1", "Cloudflare Proxy (api.protonnext.qzz.io)"),
+        "2": ("2", "Netlify Proxy (shimmering-stroopwafel-51675e.netlify.app)"),
+        "netlify": ("2", "Netlify Proxy (shimmering-stroopwafel-51675e.netlify.app)"),
+        "3": ("3", "Deno Proxy (quick-bluejay-8760.smh01-mirrors.deno.net)"),
+        "deno": ("3", "Deno Proxy (quick-bluejay-8760.smh01-mirrors.deno.net)")
+    }
+    
+    if bypass_lower not in mapping:
+        print(f"Invalid bypass option: {bypass}")
+        print("Available options: 0 (none), 1 (cloudflare), 2 (netlify), 3 (deno)")
+        sys.exit(1)
+        
+    val, desc = mapping[bypass_lower]
+    db.set_setting("api_bypass", val)
+    print(f"API Block Bypass set to: {desc}")
+
 def do_version():
     print("12.0.0-alpha2")
 
@@ -195,6 +219,12 @@ def main():
     locale_parser = subparsers.add_parser("fetch-locale", help="Fetch translated locations")
     locale_parser.add_argument("locale", help="Locale code (e.g. ru, fr, es)")
 
+    # set-bypass command
+    bypass_parser = subparsers.add_parser("set-bypass", help="Set API Block Bypass strategy",
+        epilog="Available options:\n  0 or none       - Direct connection\n  1 or cloudflare - Cloudflare proxy\n  2 or netlify    - Netlify proxy\n  3 or deno       - Deno proxy",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    bypass_parser.add_argument("bypass", help="Bypass strategy (name or number)")
+
     # status command
     subparsers.add_parser("status", help="Show current login and server cache status")
     
@@ -214,6 +244,8 @@ def main():
         do_list_servers()
     elif args.command == "fetch-locale":
         do_fetch_locale(args.locale)
+    elif args.command == "set-bypass":
+        do_set_bypass(args.bypass)
     elif args.command == "status":
         do_status()
     elif args.command == "version":
