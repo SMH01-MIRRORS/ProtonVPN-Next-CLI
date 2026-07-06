@@ -258,10 +258,18 @@ def do_connect(server_name: str, awg_str: str):
             proc.stdin.close()
             
             print(f"-> VPN Tunnel is starting. Logs: {log_path}")
+            
+            import time
+            from protonvpn_cli.routing import RoutingManager
+            time.sleep(1.5) # Wait for interface to appear
+            RoutingManager(elevate_cmd).setup_routing(vpn_ip=entry_ip)
+            
             print("-> Press Ctrl+C to disconnect, or run './protonvpn-next disconnect' in another terminal.")
             proc.wait()
     except KeyboardInterrupt:
         print("\nDisconnecting...")
+        from protonvpn_cli.routing import RoutingManager
+        RoutingManager(elevate_cmd).teardown_routing()
         subprocess.run([elevate_cmd, "pkill", "-f", "protonvpn-engine"])
         sys.exit(0)
 
@@ -273,6 +281,8 @@ def do_disconnect():
         elevate_cmd = "doas"
     
     print("-> Disconnecting VPN...")
+    from protonvpn_cli.routing import RoutingManager
+    RoutingManager(elevate_cmd).teardown_routing()
     subprocess.run([elevate_cmd, "pkill", "-f", "protonvpn-engine"])
     print("-> VPN disconnected.")
 
