@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+import os
 import subprocess
 from protonvpn_cli.auth import ProtonAuthApi
 from protonvpn_cli.vpn import ProtonVpnApi
