@@ -24,7 +24,10 @@ class RoutingManager:
 
     def _run_cmd(self, cmd: list) -> str:
         try:
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            kwargs = {"check": True, "capture_output": True, "text": True}
+            if self.is_windows:
+                kwargs["creationflags"] = 0x08000000
+            result = subprocess.run(cmd, **kwargs)
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:
             print(f"[ERROR] Command failed: {' '.join(cmd)}")
@@ -53,7 +56,10 @@ class RoutingManager:
             return None, None
 
     def _get_windows_default_gateway(self) -> Optional[str]:
-        output = subprocess.run(["route", "print", "-4", "0.0.0.0"], capture_output=True, text=True).stdout
+        kwargs = {"capture_output": True, "text": True}
+        if self.is_windows:
+            kwargs["creationflags"] = 0x08000000
+        output = subprocess.run(["route", "print", "-4", "0.0.0.0"], **kwargs).stdout
         for line in output.split('\n'):
             line = line.strip()
             if line.startswith("0.0.0.0"):
@@ -99,7 +105,6 @@ class RoutingManager:
         state = {"vpn_ip": vpn_ip, "gw": None, "iface": None, "os": sys.platform, "ips": exclude_ips, "exclude_lan": exclude_lan, "cgroup_created": False}
         
         if self.is_windows:
-            self._download_wintun()
             gw = self._get_windows_default_gateway()
             if not gw:
                 print("[ERROR] Could not detect default Windows gateway.")
@@ -112,8 +117,11 @@ class RoutingManager:
             # Windows execution (assumes running as Admin)
             with open(log_path, "w") as log_file:
                 # Use subprocess to start engine in background without blocking Python script
-                # so we can setup routes and then wait
-                proc = subprocess.Popen([engine_path], stdin=open(config_path, "r"), stdout=log_file, stderr=subprocess.STDOUT)
+                kwargs = {"stdin": open(config_path, "r"), "stdout": log_file, "stderr": subprocess.STDOUT}
+                if self.is_windows:
+                    kwargs["creationflags"] = 0x08000000
+                
+                proc = subprocess.Popen([engine_path], **kwargs)
                 import time
                 time.sleep(2.0)
                 
@@ -250,28 +258,3 @@ echo "-> VPN is running in the background. Use './protonvpn-next disconnect' to 
         except:
             pass
 
-    def _download_wintun(self):
-        # Determine engine_dir dynamically based on whether we are frozen or not
-        if getattr(sys, 'frozen', False):
-            base_dir = sys._MEIPASS
-        else:
-            base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-            
-        engine_dir = os.path.join(base_dir, "engine")
-        os.makedirs(engine_dir, exist_ok=True)
-        wintun_path = os.path.join(engine_dir, "wintun.dll")
-        if os.path.exists(wintun_path):
-            return
-            
-        print("-> Downloading wintun.dll for Windows compatibility...")
-        try:
-            import zipfile
-            import io
-            url = "https://wintun.net/builds/wintun-0.14.1.zip"
-            response = urllib.request.urlopen(url)
-            with zipfile.ZipFile(io.BytesIO(response.read())) as zip_ref:
-                with zip_ref.open("wintun/bin/amd64/wintun.dll") as zf, open(wintun_path, "wb") as f:
-                    f.write(zf.read())
-            print("-> Successfully downloaded wintun.dll")
-        except Exception as e:
-            print(f"[ERROR] Failed to download wintun.dll: {e}")

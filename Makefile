@@ -15,7 +15,7 @@ build-windows:
 	python3 -m venv .venv
 	./.venv/bin/pip install pyinstaller
 	./.venv/bin/pip install -r requirements.txt
-	./.venv/bin/pyinstaller --onefile --name protonvpn-next --icon=icon.ico --add-data "engine/protonvpn-engine.exe:engine" protonvpn-next
+	./.venv/bin/pyinstaller --onefile --name protonvpn-next --icon=icon.ico --add-data "engine/protonvpn-engine.exe:engine" --add-data "engine/wintun.dll:engine" protonvpn-next
 
 install: build
 	# Create directories

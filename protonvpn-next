@@ -353,7 +353,7 @@ def do_disconnect():
     RoutingManager(elevate_cmd).teardown_routing()
     
     if is_windows:
-        subprocess.run(["taskkill", "/F", "/IM", "protonvpn-engine.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["taskkill", "/F", "/IM", "protonvpn-engine.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
     else:
         subprocess.run([elevate_cmd, "pkill", "-f", "protonvpn-engine"])
     print("-> VPN disconnected.")
