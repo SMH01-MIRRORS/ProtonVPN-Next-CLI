@@ -92,8 +92,7 @@ class RoutingManager:
                 json.dump(state, f)
             
             script = f"""
-{engine_path} < "{config_path}" > "{log_path}" 2>&1 &
-ENGINE_PID=$!
+nohup {engine_path} < "{config_path}" > "{log_path}" 2>&1 &
 # Wait for interface
 for i in $(seq 1 30); do
     ip link show {awg_iface} >/dev/null 2>&1 && break
@@ -103,8 +102,7 @@ ip route add {vpn_ip} via {gw} dev {iface}
 ip route add 0.0.0.0/1 dev {awg_iface}
 ip route add 128.0.0.0/1 dev {awg_iface}
 echo "-> Routing configured successfully. All traffic is now secured."
-echo "-> Press Ctrl+C to disconnect, or run './protonvpn-next disconnect' in another terminal."
-wait $ENGINE_PID
+echo "-> VPN is running in the background. Use './protonvpn-next disconnect' to stop."
 """
             subprocess.run([self.elevate_cmd, "sh", "-c", script])
 

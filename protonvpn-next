@@ -257,9 +257,7 @@ def do_connect(server_name: str, awg_str: str):
     try:
         rm.start_vpn(vpn_ip=entry_ip, engine_path=engine_path, config_path=config_path, log_path=log_path)
     except KeyboardInterrupt:
-        print("\nDisconnecting...")
-        rm.teardown_routing()
-        subprocess.run([elevate_cmd, "pkill", "-f", "protonvpn-engine"])
+        print("\nCancelled.")
         sys.exit(0)
 
 def do_disconnect():
