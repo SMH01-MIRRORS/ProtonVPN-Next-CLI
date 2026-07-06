@@ -166,6 +166,91 @@ def do_set_bypass(bypass: str):
     db.set_setting("api_bypass", val)
     print(f"API Block Bypass set to: {desc}")
 
+def do_connect(server_name: str, awg_str: str):
+    db = Database()
+    vpn = ProtonVpnApi()
+    
+    server_json = vpn.get_server_by_name(server_name)
+    if not server_json:
+        print(f"[ERROR] Server '{server_name}' not found in local cache. Run 'fetch-servers' first.")
+        sys.exit(1)
+        
+    servers_list = server_json.get("Servers", [])
+    if not servers_list:
+        print("[ERROR] No physical nodes found for this logical server.")
+        sys.exit(1)
+        
+    node = servers_list[0]
+    entry_ip = node.get("EntryIP")
+    public_key = node.get("X25519PublicKey")
+    
+    if not entry_ip or not public_key:
+        print("[ERROR] Missing IP or PublicKey in server response.")
+        sys.exit(1)
+        
+    session = db.get_session()
+    if not session:
+        print("[ERROR] No active session. Run guest login.")
+        sys.exit(1)
+        
+    private_key = session.get("wg_private_key")
+    if not private_key:
+        print("[ERROR] No WireGuard private key found. Run 'register-cert' first.")
+        sys.exit(1)
+        
+    from protonvpn_cli.awg import parse_awg_string
+    awg_params = parse_awg_string(awg_str) if awg_str else {}
+    
+    config_lines = [
+        "[Interface]",
+        f"PrivateKey = {private_key}",
+        "Address = 10.2.0.2/32",
+        "DNS = 10.2.0.1"
+    ]
+    
+    for k, v in awg_params.items():
+        config_lines.append(f"{k} = {v}")
+        
+    config_lines.extend([
+        "",
+        "[Peer]",
+        f"PublicKey = {public_key}",
+        f"Endpoint = {entry_ip}:51820",
+        "AllowedIPs = 0.0.0.0/0",
+        "PersistentKeepalive = 25"
+    ])
+    
+    config = "\n".join(config_lines) + "\n"
+    
+    # Save config to file just for debug
+    config_path = os.path.expanduser("~/.config/protonvpn-next/connection.conf")
+    with open(config_path, "w") as f:
+        f.write(config)
+    print(f"-> Saved AWG configuration to {config_path}")
+    
+    engine_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "engine", "protonvpn-engine"))
+    if not os.path.exists(engine_path):
+        print(f"[ERROR] Engine binary not found at {engine_path}. Ensure it is compiled.")
+        sys.exit(1)
+        
+    import getpass
+    import subprocess
+    pwd = getpass.getpass("Enter sudo password to start VPN tunnel: ")
+    
+    print(f"-> Starting VPN connection to {server_name} ({entry_ip})...")
+    # sudo -S reads password from stdin, and the rest goes to the command
+    try:
+        proc = subprocess.Popen(['sudo', '-S', engine_path], stdin=subprocess.PIPE, text=True)
+        # Write password then config
+        proc.stdin.write(pwd + "\n")
+        proc.stdin.write(config)
+        proc.stdin.close()
+        
+        proc.wait()
+    except KeyboardInterrupt:
+        print("\nDisconnected.")
+        sys.exit(0)
+
 def do_version():
     print("12.0.0-alpha2")
 
@@ -219,6 +304,11 @@ def main():
     locale_parser = subparsers.add_parser("fetch-locale", help="Fetch translated locations")
     locale_parser.add_argument("locale", help="Locale code (e.g. ru, fr, es)")
 
+    # connect command
+    connect_parser = subparsers.add_parser("connect", help="Connect to a specific server")
+    connect_parser.add_argument("server", help="Server name (e.g. NL-FREE#2)")
+    connect_parser.add_argument("awg", nargs="?", help="AmneziaWG parameters (e.g. awg=\"vpn-next-default\")")
+
     # set-bypass command
     bypass_parser = subparsers.add_parser("set-bypass", help="Set API Block Bypass strategy",
         epilog="Available options:\n  0 or none       - Direct connection\n  1 or cloudflare - Cloudflare proxy\n  2 or netlify    - Netlify proxy\n  3 or deno       - Deno proxy",
@@ -244,6 +334,12 @@ def main():
         do_list_servers()
     elif args.command == "fetch-locale":
         do_fetch_locale(args.locale)
+    elif args.command == "connect":
+        # Extract awg parameter if provided as awg=...
+        awg_param = args.awg
+        if awg_param and awg_param.startswith("awg="):
+            awg_param = awg_param[4:].strip('"\'')
+        do_connect(args.server, awg_param)
     elif args.command == "set-bypass":
         do_set_bypass(args.bypass)
     elif args.command == "status":

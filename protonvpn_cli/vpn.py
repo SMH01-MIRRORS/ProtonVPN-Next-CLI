@@ -55,6 +55,15 @@ class ProtonVpnApi:
         except urllib.error.URLError as e:
             raise Exception(f"Network error: {e.reason}")
 
+    def get_server_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        with sqlite3.connect(self.db.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT raw_json FROM servers WHERE name = ? LIMIT 1", (name,))
+            row = cursor.fetchone()
+            if row:
+                return json.loads(row[0])
+            return None
+
     def get_max_tier(self) -> int:
         session = self.db.get_session()
         if not session or not session.get("access_token"):
