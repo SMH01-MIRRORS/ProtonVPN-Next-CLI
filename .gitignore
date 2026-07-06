@@ -1,3 +1,17 @@
 __pycache__/
 *.py[cod]
 *$py.class
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Binaries
+engine/protonvpn-engine
+engine/protonvpn-engine.exe
+
+# Python
+.venv/
+__pycache__/
+

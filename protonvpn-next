@@ -4,6 +4,17 @@ import argparse
 import sys
 import os
 import subprocess
+import platform
+
+def get_config_dir() -> str:
+    if platform.system() == "Windows":
+        base = os.environ.get("APPDATA", os.path.expanduser("~"))
+        d = os.path.join(base, "protonvpn-next")
+    else:
+        d = os.path.expanduser("~/.config/protonvpn-next")
+    os.makedirs(d, exist_ok=True)
+    return d
+
 from protonvpn_cli.auth import ProtonAuthApi
 from protonvpn_cli.vpn import ProtonVpnApi
 from protonvpn_cli.database import Database
@@ -226,30 +237,47 @@ def do_connect(server_name: str, awg_str: str):
     # Add delimiter to config for safety
     config += "---END---\n"
     
-    config_path = os.path.expanduser("~/.config/protonvpn-next/connection.conf")
+    config_dir = get_config_dir()
+    config_path = os.path.join(config_dir, "connection.conf")
     with open(config_path, "w") as f:
         f.write(config)
     print(f"-> Saved AWG configuration to {config_path}")
     
-    engine_path = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "engine", "protonvpn-engine"))
+    if getattr(sys, 'frozen', False):
+        base_dir = sys._MEIPASS
+    else:
+        base_dir = os.path.dirname(os.path.realpath(__file__))
+        
+    engine_name = "protonvpn-engine.exe" if platform.system() == "Windows" else "protonvpn-engine"
+    engine_path = os.path.abspath(os.path.join(base_dir, "engine", engine_name))
     if not os.path.exists(engine_path):
         print(f"[ERROR] Engine binary not found at {engine_path}. Ensure it is compiled.")
         sys.exit(1)
         
-    import subprocess
     import shutil
     
+    is_windows = platform.system() == "Windows"
     elevate_cmd = "sudo"
-    if shutil.which("doas"):
-        elevate_cmd = "doas"
-    elif not shutil.which("sudo"):
-        print("[ERROR] Neither sudo nor doas found.")
-        sys.exit(1)
+    
+    if is_windows:
+        import ctypes
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            print("[ERROR] Please run this command as Administrator.")
+            # Alternatively could re-launch, but asking user is safer for CLI.
+            sys.exit(1)
+        elevate_cmd = ""
+    else:
+        if shutil.which("doas"):
+            elevate_cmd = "doas"
+        elif not shutil.which("sudo"):
+            print("[ERROR] Neither sudo nor doas found.")
+            sys.exit(1)
+            
+        print(f"-> You may be prompted for your password by {elevate_cmd}.")
         
     print(f"-> Starting VPN connection to {server_name} ({entry_ip})...")
-    print(f"-> You may be prompted for your password by {elevate_cmd}.")
     
-    log_path = os.path.expanduser("~/.config/protonvpn-next/awg.log")
+    log_path = os.path.join(config_dir, "awg.log")
     
     from protonvpn_cli.routing import RoutingManager
     rm = RoutingManager(elevate_cmd)
@@ -263,19 +291,29 @@ def do_connect(server_name: str, awg_str: str):
 def do_disconnect():
     import subprocess
     import shutil
+    import platform
+    
+    is_windows = platform.system() == "Windows"
     elevate_cmd = "sudo"
-    if shutil.which("doas"):
-        elevate_cmd = "doas"
+    if not is_windows:
+        if shutil.which("doas"):
+            elevate_cmd = "doas"
+    else:
+        elevate_cmd = ""
     
     print("-> Disconnecting VPN...")
     from protonvpn_cli.routing import RoutingManager
     RoutingManager(elevate_cmd).teardown_routing()
-    subprocess.run([elevate_cmd, "pkill", "-f", "protonvpn-engine"])
+    
+    if is_windows:
+        subprocess.run(["taskkill", "/F", "/IM", "protonvpn-engine.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        subprocess.run([elevate_cmd, "pkill", "-f", "protonvpn-engine"])
     print("-> VPN disconnected.")
 
 def do_awg_logs():
     import os
-    log_path = os.path.expanduser("~/.config/protonvpn-next/awg.log")
+    log_path = os.path.join(get_config_dir(), "awg.log")
     if not os.path.exists(log_path):
         print(f"No logs found at {log_path}")
         return

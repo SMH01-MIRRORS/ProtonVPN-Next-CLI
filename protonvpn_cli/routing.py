@@ -3,12 +3,22 @@ import subprocess
 import os
 import json
 import urllib.request
+import platform
 from typing import Optional
+
+def get_config_dir() -> str:
+    if platform.system() == "Windows":
+        base = os.environ.get("APPDATA", os.path.expanduser("~"))
+        d = os.path.join(base, "protonvpn-next")
+    else:
+        d = os.path.expanduser("~/.config/protonvpn-next")
+    os.makedirs(d, exist_ok=True)
+    return d
 
 class RoutingManager:
     def __init__(self, elevate_cmd: str):
         self.elevate_cmd = elevate_cmd
-        self.state_file = os.path.expanduser("~/.config/protonvpn-next/routing_state.json")
+        self.state_file = os.path.join(get_config_dir(), "routing_state.json")
         self.is_windows = sys.platform == "win32"
 
     def _run_cmd(self, cmd: list) -> str:
@@ -69,15 +79,26 @@ class RoutingManager:
             
             # Windows execution (assumes running as Admin)
             with open(log_path, "w") as log_file:
+                # Use subprocess to start engine in background without blocking Python script
+                # so we can setup routes and then wait
                 proc = subprocess.Popen([engine_path], stdin=open(config_path, "r"), stdout=log_file, stderr=subprocess.STDOUT)
                 import time
-                time.sleep(1.5)
+                time.sleep(2.0)
+                
+                # Setup routes
                 self._run_cmd(["route", "ADD", vpn_ip, "MASK", "255.255.255.255", gw])
+                
+                # To prevent routing loop and ensure all traffic goes to Wintun
+                # In Wintun, the local IP is assigned by engine. We add two /1 routes:
                 self._run_cmd(["route", "ADD", "0.0.0.0", "MASK", "128.0.0.0", awg_ip])
                 self._run_cmd(["route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", awg_ip])
-                print("Routing configured successfully. All traffic is now secured.")
-                print("Press Ctrl+C to disconnect.")
-                proc.wait()
+                
+                print("-> Routing configured successfully. All traffic is now secured.")
+                print("-> Press Ctrl+C to disconnect.")
+                try:
+                    proc.wait()
+                except KeyboardInterrupt:
+                    proc.terminate()
             
         else:
             gw, iface = self._get_linux_default_gateway()
@@ -126,9 +147,9 @@ echo "-> VPN is running in the background. Use './protonvpn-next disconnect' to 
         print("-> Tearing down VPN routing...")
         
         if state.get("os") == "win32":
-            self._run_cmd([self.elevate_cmd, "route", "DELETE", vpn_ip, "MASK", "255.255.255.255", gw])
-            self._run_cmd([self.elevate_cmd, "route", "DELETE", "0.0.0.0", "MASK", "128.0.0.0"])
-            self._run_cmd([self.elevate_cmd, "route", "DELETE", "128.0.0.0", "MASK", "128.0.0.0"])
+            self._run_cmd(["route", "DELETE", vpn_ip, "MASK", "255.255.255.255", gw])
+            self._run_cmd(["route", "DELETE", "0.0.0.0", "MASK", "128.0.0.0"])
+            self._run_cmd(["route", "DELETE", "128.0.0.0", "MASK", "128.0.0.0"])
         else:
             if gw and iface:
                 subprocess.run([self.elevate_cmd, "ip", "route", "del", vpn_ip, "via", gw, "dev", iface], capture_output=True)
@@ -141,7 +162,14 @@ echo "-> VPN is running in the background. Use './protonvpn-next disconnect' to 
             pass
 
     def _download_wintun(self):
-        engine_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "engine")
+        # Determine engine_dir dynamically based on whether we are frozen or not
+        if getattr(sys, 'frozen', False):
+            base_dir = sys._MEIPASS
+        else:
+            base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+            
+        engine_dir = os.path.join(base_dir, "engine")
+        os.makedirs(engine_dir, exist_ok=True)
         wintun_path = os.path.join(engine_dir, "wintun.dll")
         if os.path.exists(wintun_path):
             return

@@ -14,7 +14,6 @@ import (
 	"github.com/amnezia-vpn/amneziawg-go/conn"
 	"github.com/amnezia-vpn/amneziawg-go/device"
 	"github.com/amnezia-vpn/amneziawg-go/tun"
-	"github.com/vishvananda/netlink"
 )
 
 func main() {
@@ -49,31 +48,11 @@ func main() {
 		*ifaceName = realName
 	}
 
-	// 2. Setup IP address and bring interface UP using netlink
-	link, err := netlink.LinkByName(*ifaceName)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to find link %s: %v\n", *ifaceName, err)
+	// 2. Setup IP address and bring interface UP using OS-specific setup
+	if err := setupInterface(*ifaceName, *addr); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to setup interface: %v\n", err)
 		tdev.Close()
 		os.Exit(2)
-	}
-
-	ipAddr, err := netlink.ParseAddr(*addr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to parse address %s: %v\n", *addr, err)
-		tdev.Close()
-		os.Exit(3)
-	}
-
-	if err := netlink.AddrAdd(link, ipAddr); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to set address: %v\n", err)
-		tdev.Close()
-		os.Exit(4)
-	}
-
-	if err := netlink.LinkSetUp(link); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to bring up link: %v\n", err)
-		tdev.Close()
-		os.Exit(5)
 	}
 
 	// 3. Initialize AmneziaWG device

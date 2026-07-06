@@ -8,7 +8,13 @@ BINDIR ?= $(PREFIX)/bin
 all: build
 
 build:
-	cd engine && go build -o protonvpn-engine helper.go
+	cd engine && go build -o protonvpn-engine helper.go setup_linux.go
+
+build-windows:
+	cd engine && GOOS=windows GOARCH=amd64 go build -o protonvpn-engine.exe helper.go setup_windows.go
+	python3 -m venv .venv
+	./.venv/bin/pip install pyinstaller
+	./.venv/bin/pyinstaller --onefile --name protonvpn-next --add-data "engine/protonvpn-engine.exe:engine" protonvpn-next
 
 install: build
 	# Create directories

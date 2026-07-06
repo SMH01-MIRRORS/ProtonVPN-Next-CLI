@@ -1,11 +1,16 @@
 import sqlite3
 import os
 import json
+import platform
 from typing import Dict, Any, List, Optional
 
 class Database:
     def __init__(self):
-        config_dir = os.path.expanduser("~/.config/protonvpn-next")
+        if platform.system() == "Windows":
+            base = os.environ.get("APPDATA", os.path.expanduser("~"))
+            config_dir = os.path.join(base, "protonvpn-next")
+        else:
+            config_dir = os.path.expanduser("~/.config/protonvpn-next")
         os.makedirs(config_dir, exist_ok=True)
         self.db_path = os.path.join(config_dir, "protonvpn.db")
         self._init_db()

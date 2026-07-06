@@ -1,0 +1,39 @@
+steps:
+  build-linux-engine:
+    image: golang:1.22
+    commands:
+      - cd engine
+      - GOOS=linux GOARCH=amd64 go build -o protonvpn-engine helper.go setup_linux.go
+
+  build-windows-engine:
+    image: golang:1.22
+    commands:
+      - cd engine
+      - GOOS=windows GOARCH=amd64 go build -o protonvpn-engine.exe helper.go setup_windows.go
+
+  build-linux-cli:
+    image: python:3.11
+    commands:
+      - pip install pyinstaller
+      # Linux uses colon (:) as the path separator
+      - pyinstaller --onefile --name protonvpn-next-linux --add-data "engine/protonvpn-engine:engine" protonvpn-next
+
+  build-windows-cli:
+    image: tobix/pywine:3.11
+    commands:
+      - wine pip install pyinstaller
+      # Windows uses semicolon (;) as the path separator
+      - wine pyinstaller --onefile --name protonvpn-next-windows --add-data "engine/protonvpn-engine.exe;engine" protonvpn-next
+
+  # Optional: Upload artifacts if you want them attached to a release
+  # release:
+  #   image: woodpeckerci/plugin-gitea-release
+  #   settings:
+  #     base_url: https://codeberg.org
+  #     api_key:
+  #       from_secret: codeberg_token
+  #     files:
+  #       - dist/protonvpn-next-linux
+  #       - dist/protonvpn-next-windows.exe
+  #   when:
+  #     event: tag
