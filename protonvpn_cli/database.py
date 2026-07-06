@@ -6,12 +6,8 @@ from typing import Dict, Any, List, Optional
 
 class Database:
     def __init__(self):
-        if platform.system() == "Windows":
-            base = os.environ.get("APPDATA", os.path.expanduser("~"))
-            config_dir = os.path.join(base, "protonvpn-next")
-        else:
-            config_dir = os.path.expanduser("~/.config/protonvpn-next")
-        os.makedirs(config_dir, exist_ok=True)
+        from protonvpn_cli.routing import get_config_dir
+        config_dir = get_config_dir()
         self.db_path = os.path.join(config_dir, "protonvpn.db")
         self._init_db()
 
