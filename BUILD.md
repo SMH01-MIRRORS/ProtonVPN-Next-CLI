@@ -15,10 +15,14 @@ The project utilizes `PyInstaller` to bundle the Python CLI and the compiled Go 
 
 ## Building for Linux
 
-To build a standalone Linux executable, simply run:
-
+To compile just the Go engine for Linux, run:
 ```bash
 make build
+```
+
+To build a **standalone Linux executable** (which bundles the Python CLI and the compiled Go engine into a single binary), run:
+```bash
+make build-linux-bin
 ```
 
 **What this does**:
@@ -26,7 +30,7 @@ make build
 2. Creates a Python virtual environment (`.venv`).
 3. Installs `pyinstaller` inside the virtual environment.
 4. Bundles the Python scripts and the `protonvpn-engine` binary into a single standalone executable using `pyinstaller --onefile`.
-5. The final output is placed in the `dist/` directory as `protonvpn-next`.
+5. The final output is placed in the `dist/` directory as `protonvpn-next-linux`.
 
 You can also install it to your system (`/usr/local/bin` and `/usr/local/share/protonvpn-next`):
 ```bash
@@ -36,19 +40,31 @@ sudo make install
 ## Building for Windows
 
 > [!WARNING]
-> PyInstaller **cannot** cross-compile Python executables. If you run the Windows build command on a Linux machine, it will generate a Linux executable containing the Windows `.exe` engine, which is not functional on Windows.
+> PyInstaller **cannot** cross-compile Python executables. If you run the Windows build command on a Linux machine natively, it will generate a Linux executable containing the Windows `.exe` engine, which is not functional on Windows.
 > 
-> To generate a valid `.exe` file for the Python CLI, you **must** run the build command on a Windows machine, or use a CI pipeline (like Woodpecker CI) that runs a Windows/Wine Docker container.
+> To generate a valid `.exe` file for the Python CLI, you **must** run the build command on a Windows machine, or use a Docker container (like `tobix/pywine:3.11`).
 
-To build the standalone Windows `.exe` on a Windows machine (or in a compatible CI environment):
+### Option 1: Native Windows
+To build the standalone Windows `.exe` on a Windows machine:
 
 ```bash
 make build-windows
 ```
 
-**What this does**:
-1. Cross-compiles the Go engine for Windows (`GOOS=windows GOARCH=amd64`) into `protonvpn-engine.exe`. Note: Go natively supports cross-compilation, so this step works flawlessly on Linux.
-2. Uses `pyinstaller` to bundle the Python scripts and the `.exe` engine into a single `protonvpn-next.exe` executable.
+### Option 2: Cross-Compiling from Linux using Docker
+If you want to compile the Windows `.exe` directly from a Linux machine, you must do it in two steps. First, cross-compile the Go engine, then use a Wine Docker image to package the executable.
+
+**Step 1: Compile the Go engine**
+```bash
+cd engine && GOOS=windows GOARCH=amd64 go build -o protonvpn-engine.exe helper.go setup_windows.go && cd ..
+```
+
+**Step 2: Package using PyWine Docker**
+```bash
+docker run --rm -v $(pwd):/app -w /app tobix/pywine:3.11 sh -c "wine pip install pyinstaller && wine pip install -r requirements.txt && wine pyinstaller --onefile --name protonvpn-next-windows --icon=icon.ico --version-file version_info.txt --add-data 'engine/protonvpn-engine.exe;engine' --add-data 'engine/wintun.dll;engine' protonvpn-next"
+```
+
+The final output will be generated in the `dist/` directory as `protonvpn-next-windows.exe`.
 
 ## Continuous Integration (Woodpecker CI)
 
