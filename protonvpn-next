@@ -40,18 +40,24 @@ from protonvpn_cli.auth import ProtonAuthApi
 from protonvpn_cli.vpn import ProtonVpnApi
 from protonvpn_cli.database import Database
 
-def elevate_if_needed_windows():
+def elevate_if_needed_windows(cmd_args=None):
     if platform.system() != "Windows":
         return
     import ctypes
     if not ctypes.windll.shell32.IsUserAnAdmin():
         print("-> Requesting administrator privileges via UAC...")
-        params = ' '.join([f'"{arg}"' for arg in sys.argv[1:]])
+        
+        args_to_use = cmd_args if cmd_args is not None else sys.argv[1:]
+        config_arg = f"--config-dir={get_config_dir()}"
+        args_to_use = [config_arg] + args_to_use
+        
+        params = ' '.join([f'"{arg}"' for arg in args_to_use])
+        
         if getattr(sys, 'frozen', False):
             ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
         else:
             ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, f'"{os.path.abspath(sys.argv[0])}" {params}', None, 1)
-        
+
         if ret <= 32:
             print("[ERROR] Failed to elevate privileges. (UAC prompt denied or error)")
             sys.exit(1)
@@ -351,7 +357,10 @@ def do_connect(server_name: str, awg_str: str):
     elevate_cmd = "sudo"
     
     if is_windows:
-        elevate_if_needed_windows()
+        args = ["connect", server_name]
+        if awg_str:
+            args.append(f"awg={awg_str}")
+        elevate_if_needed_windows(args)
         elevate_cmd = ""
     else:
         if os.geteuid() != 0:
@@ -391,7 +400,7 @@ def do_disconnect():
     elevate_cmd = "sudo"
     
     if is_windows:
-        elevate_if_needed_windows()
+        elevate_if_needed_windows(["disconnect"])
         elevate_cmd = ""
     else:
         if os.geteuid() != 0:
