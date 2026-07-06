@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -24,11 +23,15 @@ func main() {
 	mtu := flag.Int("mtu", 1280, "Interface MTU")
 	flag.Parse()
 
-	// Read config from stdin
+	// Read config from stdin until delimiter
 	var configBuilder strings.Builder
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
-		configBuilder.WriteString(scanner.Text() + "\n")
+		line := scanner.Text()
+		if line == "---END---" {
+			break
+		}
+		configBuilder.WriteString(line + "\n")
 	}
 	config := configBuilder.String()
 
@@ -88,15 +91,9 @@ func main() {
 	dev.Up()
 	fmt.Println("VPN Tunnel is UP and running.")
 
-	// Wait for termination signal or parent exit
+	// Wait for termination signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
-
-	// Monitor stdin for EOF (parent process exit)
-	go func() {
-		io.Copy(io.Discard, os.Stdin)
-		sigChan <- syscall.SIGTERM
-	}()
 
 	<-sigChan
 	fmt.Println("Shutting down VPN helper...")

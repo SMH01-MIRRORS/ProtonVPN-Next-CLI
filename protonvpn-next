@@ -247,16 +247,44 @@ def do_connect(server_name: str, awg_str: str):
     print(f"-> Starting VPN connection to {server_name} ({entry_ip})...")
     print(f"-> You may be prompted for your password by {elevate_cmd}.")
     
+    log_path = os.path.expanduser("~/.config/protonvpn-next/awg.log")
+    
     try:
-        proc = subprocess.Popen([elevate_cmd, engine_path], stdin=subprocess.PIPE, text=True)
-        # Write config directly; elevate_cmd will prompt for password via /dev/tty natively
-        proc.stdin.write(config)
-        proc.stdin.close()
-        
-        proc.wait()
+        with open(log_path, "w") as log_file:
+            proc = subprocess.Popen([elevate_cmd, engine_path], stdin=subprocess.PIPE, stdout=log_file, stderr=subprocess.STDOUT, text=True)
+            # Write config and delimiter
+            proc.stdin.write(config)
+            proc.stdin.write("---END---\n")
+            proc.stdin.close()
+            
+            print(f"-> VPN Tunnel is starting. Logs: {log_path}")
+            print("-> Press Ctrl+C to disconnect, or run './protonvpn-next disconnect' in another terminal.")
+            proc.wait()
     except KeyboardInterrupt:
-        print("\nDisconnected.")
+        print("\nDisconnecting...")
+        subprocess.run([elevate_cmd, "pkill", "-f", "protonvpn-engine"])
         sys.exit(0)
+
+def do_disconnect():
+    import subprocess
+    import shutil
+    elevate_cmd = "sudo"
+    if shutil.which("doas"):
+        elevate_cmd = "doas"
+    
+    print("-> Disconnecting VPN...")
+    subprocess.run([elevate_cmd, "pkill", "-f", "protonvpn-engine"])
+    print("-> VPN disconnected.")
+
+def do_awg_logs():
+    import os
+    log_path = os.path.expanduser("~/.config/protonvpn-next/awg.log")
+    if not os.path.exists(log_path):
+        print(f"No logs found at {log_path}")
+        return
+        
+    with open(log_path, "r") as f:
+        print(f.read())
 
 def do_version():
     print("12.0.0-alpha2")
@@ -325,6 +353,12 @@ def main():
     # status command
     subparsers.add_parser("status", help="Show current login and server cache status")
     
+    # disconnect command
+    subparsers.add_parser("disconnect", help="Disconnect the active VPN tunnel")
+    
+    # awg-logs command
+    subparsers.add_parser("awg-logs", help="View AmneziaWG engine logs")
+    
     # version command
     subparsers.add_parser("version", help="Show CLI version")
 
@@ -351,6 +385,10 @@ def main():
         do_set_bypass(args.bypass)
     elif args.command == "status":
         do_status()
+    elif args.command == "disconnect":
+        do_disconnect()
+    elif args.command == "awg-logs":
+        do_awg_logs()
     elif args.command == "version":
         do_version()
     elif args.command == "register-cert":
