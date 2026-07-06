@@ -18,6 +18,7 @@ steps:
     image: python:3.11
     commands:
       - pip install pyinstaller
+      - pip install -r requirements.txt
       # Linux uses colon (:) as the path separator
       - pyinstaller --onefile --name protonvpn-next-linux --add-data "engine/protonvpn-engine:engine" protonvpn-next
 
@@ -25,6 +26,7 @@ steps:
     image: tobix/pywine:3.11
     commands:
       - wine pip install pyinstaller
+      - wine pip install -r requirements.txt
       # Windows uses semicolon (;) as the path separator
       - wine pyinstaller --onefile --name protonvpn-next-windows --icon=icon.ico --add-data "engine/protonvpn-engine.exe;engine" protonvpn-next
 

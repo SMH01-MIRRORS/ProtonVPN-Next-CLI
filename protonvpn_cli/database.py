@@ -31,13 +31,17 @@ class Database:
             """)
             
             # Add certificate columns if they don't exist
-            try:
-                cursor.execute("ALTER TABLE sessions ADD COLUMN wg_private_key TEXT")
-                cursor.execute("ALTER TABLE sessions ADD COLUMN wg_certificate TEXT")
-                cursor.execute("ALTER TABLE sessions ADD COLUMN cert_expires_at INTEGER")
-                cursor.execute("ALTER TABLE sessions ADD COLUMN cert_refresh_at INTEGER")
-            except sqlite3.OperationalError:
-                pass
+            columns_to_add = [
+                "wg_private_key TEXT",
+                "wg_certificate TEXT",
+                "cert_expires_at INTEGER",
+                "cert_refresh_at INTEGER"
+            ]
+            for col in columns_to_add:
+                try:
+                    cursor.execute(f"ALTER TABLE sessions ADD COLUMN {col}")
+                except sqlite3.OperationalError:
+                    pass
             
             # Servers table
             cursor.execute("""
