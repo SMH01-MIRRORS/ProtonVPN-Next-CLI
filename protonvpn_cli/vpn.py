@@ -1,7 +1,8 @@
 import json
 import urllib.request
 import urllib.error
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+import sqlite3
 from .database import Database
 from .device_info import DeviceInfoProvider
 
