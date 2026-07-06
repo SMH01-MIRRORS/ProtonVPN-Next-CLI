@@ -35,6 +35,7 @@ class Database:
                 cursor.execute("ALTER TABLE sessions ADD COLUMN wg_private_key TEXT")
                 cursor.execute("ALTER TABLE sessions ADD COLUMN wg_certificate TEXT")
                 cursor.execute("ALTER TABLE sessions ADD COLUMN cert_expires_at INTEGER")
+                cursor.execute("ALTER TABLE sessions ADD COLUMN cert_refresh_at INTEGER")
             except sqlite3.OperationalError:
                 pass
             
@@ -96,7 +97,7 @@ class Database:
                 return dict(row)
             return None
 
-    def update_certificate(self, wg_private_key: str, wg_certificate: str, expires_at: int):
+    def update_certificate(self, wg_private_key: str, wg_certificate: str, expires_at: int, refresh_at: int = 0):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -104,9 +105,10 @@ class Database:
                     wg_private_key = ?, 
                     wg_certificate = ?, 
                     cert_expires_at = ?,
+                    cert_refresh_at = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = 1
-            """, (wg_private_key, wg_certificate, expires_at))
+            """, (wg_private_key, wg_certificate, expires_at, refresh_at))
             conn.commit()
 
     def save_servers(self, servers_list: List[Dict[str, Any]]):

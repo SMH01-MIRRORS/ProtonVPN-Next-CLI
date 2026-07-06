@@ -48,14 +48,43 @@ def do_status():
     db = Database()
     session = db.get_session()
     print("=== ProtonVPN CLI Status ===")
-    if session and session.get("access_token"):
-        print("[Auth]   Status: LOGGED IN")
-        print(f"[Auth]   UID:    {session.get('uid', 'N/A')}")
+    
+    print(f"[System] OS:      {platform.system()} {platform.release()}")
+    
+    routing_file = os.path.join(get_config_dir(), "routing_state.json")
+    if os.path.exists(routing_file):
+        try:
+            import json
+            with open(routing_file, "r") as f:
+                state = json.load(f)
+            vpn_ip = state.get("vpn_ip", "Unknown")
+            print(f"[VPN]    State:   CONNECTED (Server IP: {vpn_ip})")
+        except Exception:
+            print("[VPN]    State:   ERROR reading state")
     else:
-        print("[Auth]   Status: NOT LOGGED IN")
+        print("[VPN]    State:   DISCONNECTED")
+        
+    daemon_pid = os.path.join(get_config_dir(), "daemon.pid")
+    if os.path.exists(daemon_pid):
+        print("[Daemon] State:   RUNNING")
+    else:
+        print("[Daemon] State:   STOPPED")
+    
+    if session and session.get("access_token"):
+        print("[Auth]   Status:  LOGGED IN")
+        print(f"[Auth]   UID:     {session.get('uid', 'N/A')}")
+        from protonvpn_cli.vpn import ProtonVpnApi
+        api = ProtonVpnApi()
+        try:
+            tier = api.get_max_tier()
+            print(f"[Auth]   Tier:    {tier} (0=Free, 1=Basic, 2=Plus/Visionary)")
+        except Exception:
+            print("[Auth]   Tier:    Unknown (Network Error)")
+    else:
+        print("[Auth]   Status:  NOT LOGGED IN")
     
     count = db.get_server_count()
-    print(f"[Server] Cached: {count} servers")
+    print(f"[Server] Cached:  {count} servers")
     print("============================")
 
 def do_list_servers():
@@ -282,6 +311,11 @@ def do_connect(server_name: str, awg_str: str):
     from protonvpn_cli.routing import RoutingManager
     rm = RoutingManager(elevate_cmd)
     
+    daemon_cmd = [sys.executable, os.path.realpath(sys.argv[0]), "_daemon"]
+    daemon_proc = subprocess.Popen(daemon_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    with open(os.path.join(config_dir, "daemon.pid"), "w") as f:
+        f.write(str(daemon_proc.pid))
+        
     try:
         rm.start_vpn(vpn_ip=entry_ip, engine_path=engine_path, config_path=config_path, log_path=log_path)
     except KeyboardInterrupt:
@@ -304,6 +338,20 @@ def do_disconnect():
     print("-> Disconnecting VPN...")
     from protonvpn_cli.routing import RoutingManager
     RoutingManager(elevate_cmd).teardown_routing()
+    
+    daemon_pid_path = os.path.join(get_config_dir(), "daemon.pid")
+    if os.path.exists(daemon_pid_path):
+        try:
+            with open(daemon_pid_path, "r") as f:
+                pid = int(f.read().strip())
+            if is_windows:
+                subprocess.run(["taskkill", "/F", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                subprocess.run(["kill", "-9", str(pid)])
+            os.remove(daemon_pid_path)
+        except Exception:
+            pass
+            
     
     if is_windows:
         subprocess.run(["taskkill", "/F", "/IM", "protonvpn-engine.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -499,9 +547,10 @@ def do_register_cert():
         
         cert_data = response.get('Certificate', '')
         expires_at = response.get('ExpirationTime', 0)
+        refresh_at = response.get('RefreshTime', 0)
         
         db = Database()
-        db.update_certificate(priv_key, cert_data, expires_at)
+        db.update_certificate(priv_key, cert_data, expires_at, refresh_at)
         
         print("\n=== Certificate Registered ===")
         print(f"Status: Successfully saved to local database.")
@@ -515,6 +564,24 @@ def do_register_cert():
         print(f"\n[ERROR] {str(e)}")
         sys.exit(1)
 
+
+def do_daemon():
+    from protonvpn_cli.workers import BackgroundWorkers
+    daemon = BackgroundWorkers()
+    daemon.start()
+
+def do_update_session():
+    import time
+    print("Updating session manually...")
+    api = ProtonAuthApi()
+    try:
+        api.refresh_session()
+        db = Database()
+        db.set_setting("last_session_refresh", str(time.time()))
+        print("[SUCCESS] Session updated.")
+    except Exception as e:
+        print(f"[ERROR] Session update failed: {e}")
+        sys.exit(1)
 
 def main():
     parser = argparse.ArgumentParser(description="ProtonVPN Next CLI")
@@ -569,6 +636,12 @@ def main():
     # pid scanner (hidden internal command)
     parser_scanner = subparsers.add_parser("_pid-scanner", help=argparse.SUPPRESS)
     
+    # daemon (hidden internal command)
+    parser_daemon = subparsers.add_parser("_daemon", help=argparse.SUPPRESS)
+    
+    # update-session command
+    subparsers.add_parser("update-session", help="Manually refresh API session tokens")
+    
     # version command
     subparsers.add_parser("version", help="Show CLI version")
 
@@ -610,6 +683,10 @@ def main():
         do_novpn(args.cmd)
     elif args.command == "_pid-scanner":
         do_pid_scanner()
+    elif args.command == "_daemon":
+        do_daemon()
+    elif args.command == "update-session":
+        do_update_session()
     elif args.command == "version":
         do_version()
     elif args.command == "register-cert":

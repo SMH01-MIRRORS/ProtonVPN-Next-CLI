@@ -102,4 +102,42 @@ class ProtonAuthApi:
             user_id=guest_response.get("UserID", "")
         )
         
+        
         return guest_response
+
+    def refresh_session(self) -> Dict[str, Any]:
+        """
+        Refresh the session token using the refresh token from DB.
+        Returns the new session data.
+        """
+        session = self.db.get_session()
+        if not session or not session.get('refresh_token'):
+            raise Exception("No active session or refresh token found.")
+            
+        url = f"{self.BASE_URL}/auth/v4/refresh"
+        payload = {
+            "ResponseType": "token",
+            "GrantType": "refresh_token",
+            "RefreshToken": session['refresh_token'],
+            "RedirectURI": "https://protonvpn.com"
+        }
+        
+        headers = self.headers.copy()
+        headers["x-pm-uid"] = session['uid']
+        
+        data = self._post(url, headers, payload)
+        
+        if data.get("Code") != 1000:
+            raise Exception(f"Failed to refresh session. Code: {data.get('Code')} Error: {data}")
+            
+        new_access_token = data.get("AccessToken")
+        new_refresh_token = data.get("RefreshToken", session['refresh_token'])
+        
+        self.db.save_session(
+            access_token=new_access_token,
+            refresh_token=new_refresh_token,
+            uid=session['uid'],
+            user_id=session['user_id']
+        )
+        
+        return data
