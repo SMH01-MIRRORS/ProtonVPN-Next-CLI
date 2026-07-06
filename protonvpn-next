@@ -238,7 +238,6 @@ def do_connect(server_name: str, awg_str: str):
         
     import subprocess
     import shutil
-    import os
     
     elevate_cmd = "sudo"
     if shutil.which("doas"):
