@@ -12,6 +12,7 @@ build:
 
 build-windows-docker:
 	docker build -f Dockerfile.windows --output dist/ .
+	-docker run --rm -v $$(pwd):/app -w /app alpine chown -R $$(id -u):$$(id -g) dist/ build/ *.spec 2>/dev/null
 
 build-windows:
 	cd engine && GOOS=windows GOARCH=amd64 go build -o protonvpn-engine.exe helper.go setup_windows.go
