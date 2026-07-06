@@ -1010,6 +1010,11 @@ def main():
         print("Type 'help' to see available commands, or 'exit' to quit.\n")
         
         import shlex
+        try:
+            import readline
+        except ImportError:
+            pass
+            
         while True:
             try:
                 cmd = input("VPN-Next> ").strip()
