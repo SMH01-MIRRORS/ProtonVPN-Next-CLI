@@ -81,19 +81,37 @@ class Database:
     def save_servers(self, servers_list: List[Dict[str, Any]]):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM servers") # Clear old servers
-            
-            for s in servers_list:
-                sid = str(s.get("ID", s.get("Name", "unknown")))
-                name = s.get("Name", "")
-                country = s.get("EntryCountry", "")
-                city = s.get("City", "")
-                tier = s.get("Tier", 0)
-                raw_json = json.dumps(s)
+            for srv in servers_list:
                 cursor.execute("""
                     INSERT INTO servers (id, name, country, city, tier, raw_json)
                     VALUES (?, ?, ?, ?, ?, ?)
-                """, (sid, name, country, city, tier, raw_json))
+                    ON CONFLICT(id) DO UPDATE SET
+                        name=excluded.name,
+                        tier=excluded.tier,
+                        raw_json=excluded.raw_json
+                """, (
+                    str(srv.get("ID", srv.get("Name", "unknown"))),
+                    srv.get("Name"),
+                    srv.get("EntryCountry"),
+                    srv.get("City"),
+                    srv.get("Tier", 0),
+                    json.dumps(srv)
+                ))
+            # Delete stale servers
+            existing_ids = [str(s.get("ID", s.get("Name", "unknown"))) for s in servers_list]
+            if existing_ids:
+                placeholders = ','.join('?' * len(existing_ids))
+                cursor.execute(f"DELETE FROM servers WHERE id NOT IN ({placeholders})", existing_ids)
+            conn.commit()
+
+    def update_localized_cities(self, cities_map: Dict[str, Dict[str, str]]):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            for country, city_dict in cities_map.items():
+                for eng_city, loc_city in city_dict.items():
+                    if loc_city:
+                        cursor.execute("UPDATE servers SET city = ? WHERE country = ? AND city = ?", 
+                                       (loc_city, country, eng_city))
             conn.commit()
 
     def get_server_count(self) -> int:

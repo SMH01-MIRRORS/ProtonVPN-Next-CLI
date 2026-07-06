@@ -47,6 +47,54 @@ class ProtonVpnApi:
         except urllib.error.URLError as e:
             raise Exception(f"Network error: {e.reason}")
 
+    def get_max_tier(self) -> int:
+        session = self.db.get_session()
+        if not session or not session.get("access_token"):
+            return 0
+
+        url = f"{self.BASE_URL}/vpn/v2"
+        headers = {
+            "Authorization": f"Bearer {session['access_token']}",
+            "x-pm-uid": session['uid'],
+            "User-Agent": self.device_info.get_spoofed_user_agent(),
+            "x-pm-appversion": f"android-vpn@{DeviceInfoProvider.SPOOFED_APP_VERSION}-dev+play",
+            "x-pm-apiversion": "4",
+            "Accept": "application/vnd.protonmail.v1+json",
+        }
+        req = urllib.request.Request(url, headers=headers, method='GET')
+        try:
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                return data.get("VPN", {}).get("MaxTier", 0)
+        except Exception:
+            return 0
+
+    def fetch_locale(self, locale: str) -> Dict[str, Any]:
+        session = self.db.get_session()
+        if not session or not session.get("access_token"):
+            raise Exception("No active session.")
+
+        url = f"{self.BASE_URL}/vpn/v1/cities/names"
+        headers = {
+            "Authorization": f"Bearer {session['access_token']}",
+            "x-pm-uid": session['uid'],
+            "User-Agent": self.device_info.get_spoofed_user_agent(),
+            "x-pm-appversion": f"android-vpn@{DeviceInfoProvider.SPOOFED_APP_VERSION}-dev+play",
+            "x-pm-apiversion": "4",
+            "x-pm-locale": locale,
+            "Accept": "application/vnd.protonmail.v1+json",
+        }
+        req = urllib.request.Request(url, headers=headers, method='GET')
+        try:
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                return data
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8')
+            raise Exception(f"HTTP {e.code}: {error_body}")
+        except urllib.error.URLError as e:
+            raise Exception(f"Network error: {e.reason}")
+
     def register_cert(self, public_key: str) -> Dict[str, Any]:
         session = self.db.get_session()
         if not session or not session.get("access_token"):

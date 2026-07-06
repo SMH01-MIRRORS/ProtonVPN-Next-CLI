@@ -53,6 +53,12 @@ def do_list_servers():
         print("No servers found. Run 'fetch-servers' first.")
         return
 
+    api = ProtonVpnApi()
+    try:
+        max_tier = api.get_max_tier()
+    except Exception:
+        max_tier = 0
+
     tree = {}
     for s in servers:
         country = s['country'] or "Unknown"
@@ -60,13 +66,20 @@ def do_list_servers():
         name = s['name']
         tier = s['tier']
         
+        if tier > max_tier:
+            continue
+        
         if country not in tree:
             tree[country] = {}
         if city not in tree[country]:
             tree[country][city] = []
         tree[country][city].append((name, tier))
 
-    print("ProtonVPN Servers")
+    if not tree:
+        print(f"No servers found for your current plan tier ({max_tier}).")
+        return
+
+    print(f"ProtonVPN Servers (Filtered for Max Tier: {max_tier})")
     print("=================")
     countries = sorted(tree.keys())
     for i, country in enumerate(countries):
@@ -88,6 +101,19 @@ def do_list_servers():
                 s_prefix = "└── " if is_last_srv else "├── "
                 tier_str = f" [Tier {tier}]" if tier > 0 else " [Free]"
                 print(f"{city_pipe}{srv_pipe}{s_prefix}{name}{tier_str}")
+
+def do_fetch_locale(locale: str):
+    print(f"Fetching localized locations for '{locale}'...")
+    api = ProtonVpnApi()
+    try:
+        response = api.fetch_locale(locale)
+        cities_map = response.get("Cities", {})
+        db = Database()
+        db.update_localized_cities(cities_map)
+        print("[SUCCESS] Localized cities downloaded and saved to database.")
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch localized locations: {e}")
+        sys.exit(1)
 
 def do_version():
     print("12.0.0-alpha2")
@@ -138,6 +164,10 @@ def main():
     # list-servers command
     subparsers.add_parser("list-servers", help="List cached VPN servers as a tree")
 
+    # fetch-locale command
+    locale_parser = subparsers.add_parser("fetch-locale", help="Fetch translated locations")
+    locale_parser.add_argument("locale", help="Locale code (e.g. ru, fr, es)")
+
     # status command
     subparsers.add_parser("status", help="Show current login and server cache status")
     
@@ -155,6 +185,8 @@ def main():
         do_fetch_servers()
     elif args.command == "list-servers":
         do_list_servers()
+    elif args.command == "fetch-locale":
+        do_fetch_locale(args.locale)
     elif args.command == "status":
         do_status()
     elif args.command == "version":
