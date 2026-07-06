@@ -1,12 +1,15 @@
+when:
+  - event: [push, pull_request]
+
 steps:
   build-linux-engine:
-    image: golang:1.22
+    image: golang:latest
     commands:
       - cd engine
       - GOOS=linux GOARCH=amd64 go build -o protonvpn-engine helper.go setup_linux.go
 
   build-windows-engine:
-    image: golang:1.22
+    image: golang:latest
     commands:
       - cd engine
       - GOOS=windows GOARCH=amd64 go build -o protonvpn-engine.exe helper.go setup_windows.go
