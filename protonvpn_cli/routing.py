@@ -13,6 +13,15 @@ def get_config_dir() -> str:
         d = os.path.join(base, "protonvpn-next")
     else:
         orig_user = os.environ.get("SUDO_USER") or os.environ.get("DOAS_USER")
+        if not orig_user and os.geteuid() == 0:
+            try:
+                orig_user = os.getlogin()
+            except Exception:
+                try:
+                    import subprocess
+                    orig_user = subprocess.run(["logname"], capture_output=True, text=True).stdout.strip()
+                except Exception:
+                    pass
         if orig_user and orig_user != "root":
             import pwd
             try:
