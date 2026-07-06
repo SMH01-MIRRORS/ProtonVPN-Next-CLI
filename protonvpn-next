@@ -809,7 +809,7 @@ def main():
     parser_autosetup.add_argument("--proxy-cf", action="store_true", help="Auto-select Cloudflare proxy")
     parser_autosetup.add_argument("--proxy-netlify", action="store_true", help="Auto-select Netlify proxy")
     parser_autosetup.add_argument("--proxy-deno", action="store_true", help="Auto-select Deno proxy")
-    parser_autosetup.add_argument("--proxy-direct", action="store_true", help="Auto-select Direct connection")
+    parser_autosetup.add_argument("--no-proxy", action="store_true", help="Auto-select Direct connection (No proxy)")
     
     args = parser.parse_args()
     
@@ -849,7 +849,7 @@ def main():
             proxy = "2"
         elif args.proxy_deno:
             proxy = "3"
-        elif args.proxy_direct:
+        elif args.no_proxy:
             proxy = "0"
         do_autosetup(proxy)
     elif args.command == "novpn":
