@@ -26,7 +26,7 @@ steps:
     commands:
       - wine pip install pyinstaller
       # Windows uses semicolon (;) as the path separator
-      - wine pyinstaller --onefile --name protonvpn-next-windows --add-data "engine/protonvpn-engine.exe;engine" protonvpn-next
+      - wine pyinstaller --onefile --name protonvpn-next-windows --icon=icon.ico --add-data "engine/protonvpn-engine.exe;engine" protonvpn-next
 
   # Optional: Upload artifacts if you want them attached to a release
   # release:
