@@ -12,7 +12,16 @@ def get_config_dir() -> str:
         base = os.environ.get("APPDATA", os.path.expanduser("~"))
         d = os.path.join(base, "protonvpn-next")
     else:
-        d = os.path.expanduser("~/.config/protonvpn-next")
+        orig_user = os.environ.get("SUDO_USER") or os.environ.get("DOAS_USER")
+        if orig_user and orig_user != "root":
+            import pwd
+            try:
+                home = pwd.getpwnam(orig_user).pw_dir
+            except KeyError:
+                home = os.path.expanduser("~")
+        else:
+            home = os.path.expanduser("~")
+        d = os.path.join(home, ".config/protonvpn-next")
     os.makedirs(d, exist_ok=True)
     return d
 
