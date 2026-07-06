@@ -34,7 +34,7 @@ func main() {
 	}
 	config := configBuilder.String()
 
-	fmt.Printf("Starting VPN helper for %s (%s)...\n", *ifaceName, *addr)
+	fmt.Fprintf(os.Stderr, "[Engine] Starting VPN helper for %s (%s)...\n", *ifaceName, *addr)
 
 	// 1. Create TUN device
 	tdev, err := tun.CreateTUN(*ifaceName, *mtu)
@@ -68,14 +68,14 @@ func main() {
 	}
 
 	dev.Up()
-	fmt.Println("VPN Tunnel is UP and running.")
+	fmt.Fprintf(os.Stderr, "[Engine] VPN Tunnel is UP and running.\n")
 
 	// Wait for termination signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
 
 	<-sigChan
-	fmt.Println("Shutting down VPN helper...")
+	fmt.Fprintf(os.Stderr, "[Engine] Shutting down VPN helper...\n")
 	dev.Close()
 }
 

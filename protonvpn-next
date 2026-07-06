@@ -368,6 +368,24 @@ def do_awg_logs():
     with open(log_path, "r") as f:
         print(f.read())
 
+def do_client_logs():
+    import os
+    print("=== Engine & Client Logs ===")
+    log_path = os.path.join(get_config_dir(), "client.log")
+    if os.path.exists(log_path):
+        with open(log_path, "r") as f:
+            print(f.read())
+    else:
+        print(f"No logs found at {log_path}")
+        
+    print("\n=== Daemon Logs ===")
+    daemon_path = os.path.join(get_config_dir(), "daemon.log")
+    if os.path.exists(daemon_path):
+        with open(daemon_path, "r") as f:
+            print(f.read())
+    else:
+        print(f"No daemon logs found at {daemon_path}")
+
 def get_split_tunnel_config():
     import json, os
     config_path = os.path.join(get_config_dir(), "split_tunnel.json")
@@ -687,7 +705,10 @@ def main():
     subparsers.add_parser("disconnect", help="Disconnect the active VPN tunnel")
     
     # awg-logs command
-    subparsers.add_parser("awg-logs", help="View AmneziaWG engine logs")
+    subparsers.add_parser("awg-logs", help="View AmneziaWG engine logs (Handshake, Keepalive, etc.)")
+    
+    # client-logs command
+    subparsers.add_parser("client-logs", help="View Client logs (Engine setup, Python CLI, Daemon errors)")
     
     # exclude-lan command
     parser_exclude_lan = subparsers.add_parser("exclude-lan", help="Exclude Local Area Network (LAN) from VPN tunnel")
@@ -745,6 +766,8 @@ def main():
         do_disconnect()
     elif args.command == "awg-logs":
         do_awg_logs()
+    elif args.command == "client-logs":
+        do_client_logs()
     elif args.command == "exclude-lan":
         do_exclude_lan(args.state)
     elif args.command == "split-tunneling":

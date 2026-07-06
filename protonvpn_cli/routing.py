@@ -68,6 +68,18 @@ class RoutingManager:
                     return parts[2] # Gateway
         return None
 
+    def _get_windows_iface_index(self, iface_name: str) -> Optional[str]:
+        kwargs = {"capture_output": True, "text": True}
+        if self.is_windows:
+            kwargs["creationflags"] = 0x08000000
+        output = subprocess.run(["netsh", "interface", "ipv4", "show", "interfaces"], **kwargs).stdout
+        for line in output.split('\n'):
+            if iface_name in line:
+                parts = line.split()
+                if len(parts) >= 1:
+                    return parts[0]
+        return None
+
     def _get_split_config(self):
         config_path = os.path.join(get_config_dir(), "split_tunnel.json")
         if os.path.exists(config_path):
@@ -115,15 +127,25 @@ class RoutingManager:
                 json.dump(state, f)
             
             # Windows execution (assumes running as Admin)
+            client_log_path = log_path.replace("awg.log", "client.log")
             with open(log_path, "w") as log_file:
                 # Use subprocess to start engine in background without blocking Python script
-                kwargs = {"stdin": open(config_path, "r"), "stdout": log_file, "stderr": subprocess.STDOUT}
+                kwargs = {"stdin": open(config_path, "r"), "stdout": log_file, "stderr": open(client_log_path, "w")}
                 if self.is_windows:
                     kwargs["creationflags"] = 0x08000000
                 
                 proc = subprocess.Popen([engine_path], **kwargs)
-                import time
-                time.sleep(2.0)
+                
+                iface_idx = None
+                for _ in range(15):
+                    iface_idx = self._get_windows_iface_index("awg0")
+                    if iface_idx:
+                        break
+                    import time
+                    time.sleep(1.0)
+                    
+                if not iface_idx:
+                    print("[WARNING] Wintun interface 'awg0' did not appear in time. Traffic routing might fail.")
                 
                 # Setup routes
                 self._run_cmd(["route", "ADD", vpn_ip, "MASK", "255.255.255.255", gw])
@@ -136,9 +158,12 @@ class RoutingManager:
                     self._run_cmd(["route", "ADD", "192.168.0.0", "MASK", "255.255.0.0", gw])
                 
                 # To prevent routing loop and ensure all traffic goes to Wintun
-                # In Wintun, the local IP is assigned by engine. We add two /1 routes:
-                self._run_cmd(["route", "ADD", "0.0.0.0", "MASK", "128.0.0.0", awg_ip])
-                self._run_cmd(["route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", awg_ip])
+                if iface_idx:
+                    self._run_cmd(["route", "ADD", "0.0.0.0", "MASK", "128.0.0.0", "0.0.0.0", "IF", iface_idx])
+                    self._run_cmd(["route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", "0.0.0.0", "IF", iface_idx])
+                else:
+                    self._run_cmd(["route", "ADD", "0.0.0.0", "MASK", "128.0.0.0", awg_ip])
+                    self._run_cmd(["route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", awg_ip])
                 
                 print("-> Routing configured successfully. All traffic is now secured.")
                 print("-> Press Ctrl+C to disconnect.")
@@ -180,9 +205,9 @@ class RoutingManager:
             
             with open(self.state_file, "w") as f:
                 json.dump(state, f)
-            
+            client_log_path = log_path.replace("awg.log", "client.log")
             script = f"""
-nohup {engine_path} < "{config_path}" > "{log_path}" 2>&1 &
+nohup {engine_path} < "{config_path}" > "{log_path}" 2> "{client_log_path}" &
 # Wait for interface
 for i in $(seq 1 30); do
     ip link show {awg_iface} >/dev/null 2>&1 && break
