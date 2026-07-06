@@ -36,5 +36,5 @@ make install DESTDIR=$RPM_BUILD_ROOT PREFIX=/usr
 /usr/lib/protonvpn-next/engine/
 
 %changelog
-* Mon Jul 06 2026 Smh01 <smh01@example.com> - 12.0.0~alpha2-1
+* Mon Jul 06 2026 SMH01 <vpn-next@outlook.com> - 12.0.0~alpha2-1
 - Initial package

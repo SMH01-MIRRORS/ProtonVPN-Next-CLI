@@ -1,7 +1,7 @@
 Source: protonvpn-next
 Section: net
 Priority: optional
-Maintainer: Smh01 <smh01@example.com>
+Maintainer: SMH01 <vpn-next@outlook.com>
 Build-Depends: debhelper-compat (= 13), golang-go, make
 Standards-Version: 4.6.0
 Homepage: https://github.com/smh01/ProtonVPN-Next-CLI
