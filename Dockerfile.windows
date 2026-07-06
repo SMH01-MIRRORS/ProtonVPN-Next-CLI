@@ -1,5 +1,5 @@
 # Stage 1: Build the Go engine for Windows
-FROM golang:1.22-alpine AS engine-builder
+FROM golang:alpine AS engine-builder
 WORKDIR /src
 # Copy engine source
 COPY engine/ /src/engine/
