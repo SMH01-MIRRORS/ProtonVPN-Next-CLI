@@ -158,7 +158,8 @@ class RoutingManager:
                 # Use subprocess to start engine in background without blocking Python script
                 kwargs = {"stdin": open(config_path, "r"), "stdout": log_file, "stderr": open(client_log_path, "w")}
                 if self.is_windows:
-                    kwargs["creationflags"] = 0x08000000
+                    # DETACHED_PROCESS (0x00000008) | CREATE_NEW_PROCESS_GROUP (0x00000200)
+                    kwargs["creationflags"] = 0x00000208
                 
                 proc = subprocess.Popen([engine_path], **kwargs)
                 
@@ -192,11 +193,7 @@ class RoutingManager:
                     self._run_cmd(["route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", awg_ip])
                 
                 print("-> Routing configured successfully. All traffic is now secured.")
-                print("-> Press Ctrl+C to disconnect.")
-                try:
-                    proc.wait()
-                except KeyboardInterrupt:
-                    proc.terminate()
+                print("-> VPN is running in the background. Use 'disconnect' to stop.")
             
         else:
             gw, iface = self._get_linux_default_gateway()
