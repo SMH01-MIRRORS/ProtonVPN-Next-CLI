@@ -15,7 +15,14 @@ build-windows:
 	python3 -m venv .venv
 	./.venv/bin/pip install pyinstaller
 	./.venv/bin/pip install -r requirements.txt
-	./.venv/bin/pyinstaller --onefile --name protonvpn-next --icon=icon.ico --version-file version_info.txt --add-data "engine/protonvpn-engine.exe:engine" --add-data "engine/wintun.dll:engine" protonvpn-next
+	./.venv/bin/pyinstaller --onefile --name protonvpn-next-windows --icon=icon.ico --version-file version_info.txt --add-data "engine/protonvpn-engine.exe:engine" --add-data "engine/wintun.dll:engine" protonvpn-next
+
+build-linux-bin:
+	cd engine && go build -o protonvpn-engine helper.go setup_linux.go
+	python3 -m venv .venv
+	./.venv/bin/pip install pyinstaller
+	./.venv/bin/pip install -r requirements.txt
+	./.venv/bin/pyinstaller --onefile --name protonvpn-next-linux --add-data "engine/protonvpn-engine:engine" protonvpn-next
 
 install: build
 	# Create directories
