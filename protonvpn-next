@@ -234,16 +234,22 @@ def do_connect(server_name: str, awg_str: str):
         print(f"[ERROR] Engine binary not found at {engine_path}. Ensure it is compiled.")
         sys.exit(1)
         
-    import getpass
     import subprocess
-    pwd = getpass.getpass("Enter sudo password to start VPN tunnel: ")
+    import shutil
     
+    elevate_cmd = "sudo"
+    if shutil.which("doas"):
+        elevate_cmd = "doas"
+    elif not shutil.which("sudo"):
+        print("[ERROR] Neither sudo nor doas found.")
+        sys.exit(1)
+        
     print(f"-> Starting VPN connection to {server_name} ({entry_ip})...")
-    # sudo -S reads password from stdin, and the rest goes to the command
+    print(f"-> You may be prompted for your password by {elevate_cmd}.")
+    
     try:
-        proc = subprocess.Popen(['sudo', '-S', engine_path], stdin=subprocess.PIPE, text=True)
-        # Write password then config
-        proc.stdin.write(pwd + "\n")
+        proc = subprocess.Popen([elevate_cmd, engine_path], stdin=subprocess.PIPE, text=True)
+        # Write config directly; elevate_cmd will prompt for password via /dev/tty natively
         proc.stdin.write(config)
         proc.stdin.close()
         
