@@ -138,7 +138,6 @@ func configToUapi(config string) string {
 		case "publickey":
 			if inPeer {
 				uapi += "public_key=" + toHex(value) + "\n"
-				uapi += "replace_peers=true\n"
 			}
 		case "endpoint":
 			uapi += "endpoint=" + value + "\n"
