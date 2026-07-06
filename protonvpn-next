@@ -59,9 +59,36 @@ def do_list_servers():
     except Exception:
         max_tier = 0
 
+    try:
+        from babel import Locale
+        import locale
+        import sys
+        
+        lang = 'en'
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                loc_tuple = locale.getdefaultlocale()
+            if loc_tuple and loc_tuple[0]:
+                lang = loc_tuple[0].split('_')[0]
+            elif sys.platform == "win32":
+                import ctypes
+                win_lang = locale.windows_locale.get(ctypes.windll.kernel32.GetUserDefaultUILanguage())
+                if win_lang:
+                    lang = win_lang.split('_')[0]
+        except Exception:
+            pass
+            
+        sys_locale = Locale.parse(lang)
+        territories = sys_locale.territories
+    except ImportError:
+        territories = {}
+
     tree = {}
     for s in servers:
-        country = s['country'] or "Unknown"
+        country_code = s['country'] or "Unknown"
+        country = territories.get(country_code, country_code)
         city = s['city'] or "Unknown"
         name = s['name']
         tier = s['tier']
