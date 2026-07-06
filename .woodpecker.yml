@@ -1,5 +1,5 @@
 when:
-  - event: [push, pull_request]
+  - event: [push, pull_request, tag]
 
 steps:
   build-linux-engine:
@@ -19,7 +19,6 @@ steps:
     commands:
       - pip install pyinstaller
       - pip install -r requirements.txt
-      # Linux uses colon (:) as the path separator
       - pyinstaller --onefile --name protonvpn-next-linux --add-data "engine/protonvpn-engine:engine" protonvpn-next
 
   build-windows-cli:
@@ -27,18 +26,33 @@ steps:
     commands:
       - wine pip install pyinstaller
       - wine pip install -r requirements.txt
-      # Windows uses semicolon (;) as the path separator
       - wine pyinstaller --onefile --name protonvpn-next-windows --icon=icon.ico --version-file version_info.txt --add-data "engine/protonvpn-engine.exe;engine" --add-data "engine/wintun.dll;engine" protonvpn-next
 
-  # Optional: Upload artifacts if you want them attached to a release
-  # release:
-  #   image: woodpeckerci/plugin-gitea-release
-  #   settings:
-  #     base_url: https://codeberg.org
-  #     api_key:
-  #       from_secret: codeberg_token
-  #     files:
-  #       - dist/protonvpn-next-linux
-  #       - dist/protonvpn-next-windows.exe
-  #   when:
-  #     event: tag
+  publish-stable:
+    image: woodpeckerci/plugin-release
+    when:
+      event: tag
+      ref: 'regex:^refs/tags/[0-9]+\.[0-9]+\.[0-9]+$'
+    settings:
+      api_key:
+        from_secret: CODEBERG_TOKEN
+      files:
+        - dist/protonvpn-next-linux
+        - dist/protonvpn-next-windows.exe
+      title: "Release ${CI_COMMIT_TAG}"
+      prerelease: false
+
+  publish-prerelease:
+    image: woodpeckerci/plugin-release
+    when:
+      event: tag
+      ref: 
+        exclude: 'regex:^refs/tags/[0-9]+\.[0-9]+\.[0-9]+$'
+    settings:
+      api_key:
+        from_secret: CODEBERG_TOKEN
+      files:
+        - dist/protonvpn-next-linux
+        - dist/protonvpn-next-windows.exe
+      title: "Pre-release ${CI_COMMIT_TAG}"
+      prerelease: true
