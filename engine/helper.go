@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"encoding/base64"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -103,7 +105,7 @@ func main() {
 
 func configToUapi(config string) string {
 	lines := strings.Split(config, "\n")
-	uapi := "set=1\n"
+	uapi := ""
 	inPeer := false
 
 	for _, line := range lines {
@@ -130,12 +132,12 @@ func configToUapi(config string) string {
 
 		switch key {
 		case "privatekey":
-			uapi += "private_key=" + strings.ToLower(value) + "\n"
+			uapi += "private_key=" + toHex(value) + "\n"
 		case "listenport":
 			uapi += "listen_port=" + value + "\n"
 		case "publickey":
 			if inPeer {
-				uapi += "public_key=" + strings.ToLower(value) + "\n"
+				uapi += "public_key=" + toHex(value) + "\n"
 				uapi += "replace_peers=true\n"
 			}
 		case "endpoint":
@@ -152,4 +154,12 @@ func configToUapi(config string) string {
 		}
 	}
 	return uapi
+}
+
+func toHex(b64 string) string {
+	b, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return b64 // fallback
+	}
+	return hex.EncodeToString(b)
 }
