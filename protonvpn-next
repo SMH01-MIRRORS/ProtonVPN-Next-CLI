@@ -7,6 +7,9 @@ import subprocess
 import platform
 
 def get_config_dir() -> str:
+    if "PROTONVPN_CONFIG_DIR" in os.environ:
+        return os.environ["PROTONVPN_CONFIG_DIR"]
+        
     if platform.system() == "Windows":
         base = os.environ.get("APPDATA", os.path.expanduser("~"))
         d = os.path.join(base, "protonvpn-next")
@@ -257,7 +260,8 @@ def elevate_command_linux(cmd_args):
             else:
                 base_cmd = [sys.executable, os.path.abspath(sys.argv[0])]
                 
-            subprocess.run([elevate_cmd] + base_cmd + cmd_args, check=True)
+            config_arg = f"--config-dir={get_config_dir()}"
+            subprocess.run([elevate_cmd] + base_cmd + [config_arg] + cmd_args, check=True)
             return True
         except subprocess.CalledProcessError as e:
             sys.exit(e.returncode)
@@ -384,14 +388,19 @@ def do_disconnect():
     import os
     
     is_windows = platform.system() == "Windows"
-    elevate_cmd = ""
+    elevate_cmd = "sudo"
     
     if is_windows:
         elevate_if_needed_windows()
+        elevate_cmd = ""
     else:
         if os.geteuid() != 0:
             if elevate_command_linux(["disconnect"]):
                 return
+        elif shutil.which("doas"):
+            elevate_cmd = "doas"
+        elif not shutil.which("sudo"):
+            elevate_cmd = ""
     
     print("-> Disconnecting VPN...")
     from protonvpn_cli.routing import RoutingManager
@@ -822,6 +831,7 @@ def ensure_daemon_running():
 
 def run_cli(args_list=None):
     parser = argparse.ArgumentParser(description="ProtonVPN Next CLI")
+    parser.add_argument("--config-dir", type=str, help=argparse.SUPPRESS)
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
     # guest command
@@ -903,6 +913,13 @@ def run_cli(args_list=None):
     parser_autosetup.add_argument("--no-proxy", action="store_true", help="Auto-select Direct connection (No proxy)")
     
     args = parser.parse_args(args_list)
+    
+    if hasattr(args, 'config_dir') and args.config_dir:
+        os.environ["PROTONVPN_CONFIG_DIR"] = args.config_dir
+        
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
     
     if args.command == "guest":
         do_guest_login()

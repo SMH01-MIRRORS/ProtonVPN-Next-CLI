@@ -8,6 +8,9 @@ import socket
 from typing import Optional, List
 
 def get_config_dir() -> str:
+    if "PROTONVPN_CONFIG_DIR" in os.environ:
+        return os.environ["PROTONVPN_CONFIG_DIR"]
+        
     if platform.system() == "Windows":
         base = os.environ.get("APPDATA", os.path.expanduser("~"))
         d = os.path.join(base, "protonvpn-next")
@@ -39,6 +42,11 @@ class RoutingManager:
         self.elevate_cmd = elevate_cmd
         self.state_file = os.path.join(get_config_dir(), "routing_state.json")
         self.is_windows = sys.platform == "win32"
+
+    def _elevate(self, cmd: list) -> list:
+        if self.elevate_cmd:
+            return [self.elevate_cmd] + cmd
+        return cmd
 
     def _run_cmd(self, cmd: list) -> str:
         try:
@@ -238,7 +246,7 @@ ip route add 128.0.0.0/1 dev {awg_iface}
 echo "-> Routing configured successfully. All traffic is now secured."
 echo "-> VPN is running in the background. Use 'disconnect' to stop."
 """
-            subprocess.run([self.elevate_cmd, "sh", "-c", script])
+            subprocess.run(self._elevate(["sh", "-c", script]))
             
             # Launch PID scanner in background if needed
             if exclude_apps:
@@ -279,25 +287,24 @@ echo "-> VPN is running in the background. Use 'disconnect' to stop."
             self._run_cmd(["route", "DELETE", "128.0.0.0", "MASK", "128.0.0.0"])
         else:
             if gw and iface:
-                subprocess.run([self.elevate_cmd, "ip", "route", "del", vpn_ip, "via", gw, "dev", iface], capture_output=True)
+                subprocess.run(self._elevate(["ip", "route", "del", vpn_ip, "via", gw, "dev", iface]), capture_output=True)
                 for ip in ips:
-                    subprocess.run([self.elevate_cmd, "ip", "route", "del", ip, "via", gw, "dev", iface], capture_output=True)
+                    subprocess.run(self._elevate(["ip", "route", "del", ip, "via", gw, "dev", iface]), capture_output=True)
                 if exclude_lan:
-                    subprocess.run([self.elevate_cmd, "ip", "route", "del", "10.0.0.0/8", "via", gw, "dev", iface], capture_output=True)
-                    subprocess.run([self.elevate_cmd, "ip", "route", "del", "172.16.0.0/12", "via", gw, "dev", iface], capture_output=True)
-                    subprocess.run([self.elevate_cmd, "ip", "route", "del", "192.168.0.0/16", "via", gw, "dev", iface], capture_output=True)
+                    subprocess.run(self._elevate(["ip", "route", "del", "10.0.0.0/8", "via", gw, "dev", iface]), capture_output=True)
+                    subprocess.run(self._elevate(["ip", "route", "del", "172.16.0.0/12", "via", gw, "dev", iface]), capture_output=True)
+                    subprocess.run(self._elevate(["ip", "route", "del", "192.168.0.0/16", "via", gw, "dev", iface]), capture_output=True)
                     
             if cgroup_created:
-                subprocess.run([self.elevate_cmd, "iptables", "-t", "mangle", "-D", "OUTPUT", "-m", "cgroup", "--path", "protonvpn_exclude", "-j", "MARK", "--set-mark", "51820"], capture_output=True)
-                subprocess.run([self.elevate_cmd, "ip", "rule", "del", "fwmark", "51820", "table", "200"], capture_output=True)
+                subprocess.run(self._elevate(["iptables", "-t", "mangle", "-D", "OUTPUT", "-m", "cgroup", "--path", "protonvpn_exclude", "-j", "MARK", "--set-mark", "51820"]), capture_output=True)
+                subprocess.run(self._elevate(["ip", "rule", "del", "fwmark", "51820", "table", "200"]), capture_output=True)
                 # Note: cgroup directory might not be deleted if processes are still in it, but that's fine.
-                subprocess.run([self.elevate_cmd, "rmdir", "/sys/fs/cgroup/protonvpn_exclude"], capture_output=True)
+                subprocess.run(self._elevate(["rmdir", "/sys/fs/cgroup/protonvpn_exclude"]), capture_output=True)
                 
-            subprocess.run([self.elevate_cmd, "ip", "route", "del", "0.0.0.0/1"], capture_output=True)
-            subprocess.run([self.elevate_cmd, "ip", "route", "del", "128.0.0.0/1"], capture_output=True)
+            subprocess.run(self._elevate(["ip", "route", "del", "0.0.0.0/1"]), capture_output=True)
+            subprocess.run(self._elevate(["ip", "route", "del", "128.0.0.0/1"]), capture_output=True)
             
         try:
             os.remove(self.state_file)
         except:
             pass
-
