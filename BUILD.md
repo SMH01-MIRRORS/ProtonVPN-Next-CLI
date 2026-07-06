@@ -54,17 +54,16 @@ make build-windows
 ### Option 2: Cross-Compiling from Linux using Docker
 If you want to compile the Windows `.exe` directly from a Linux machine, you must do it in two steps. First, cross-compile the Go engine, then use a Wine Docker image to package the executable.
 
-**Step 1: Compile the Go engine**
+**Step 1: Just run make!**
+If you have Docker with BuildKit enabled (default in modern Docker), simply run:
 ```bash
-cd engine && GOOS=windows GOARCH=amd64 go build -o protonvpn-engine.exe helper.go setup_windows.go && cd ..
+make build-windows-docker
 ```
 
-**Step 2: Package using PyWine Docker**
-```bash
-docker run --rm -v $(pwd):/app -w /app tobix/pywine:3.11 sh -c "wine pip install pyinstaller && wine pip install -r requirements.txt && wine pyinstaller --onefile --name protonvpn-next-windows --icon=icon.ico --version-file version_info.txt --add-data 'engine/protonvpn-engine.exe;engine' --add-data 'engine/wintun.dll;engine' protonvpn-next"
-```
-
-The final output will be generated in the `dist/` directory as `protonvpn-next-windows.exe`.
+This uses a multi-stage `Dockerfile.windows` to:
+1. Cross-compile the Go engine in a lightweight `golang` Alpine container.
+2. Bundle the executable using PyInstaller inside a `pywine` Wine container.
+3. Export the final `protonvpn-next-windows.exe` binary directly into your `dist/` folder.
 
 ## Continuous Integration (Woodpecker CI)
 

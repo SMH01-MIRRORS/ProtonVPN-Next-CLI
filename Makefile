@@ -10,6 +10,9 @@ all: build
 build:
 	cd engine && go build -o protonvpn-engine helper.go setup_linux.go
 
+build-windows-docker:
+	docker build -f Dockerfile.windows --output dist/ .
+
 build-windows:
 	cd engine && GOOS=windows GOARCH=amd64 go build -o protonvpn-engine.exe helper.go setup_windows.go
 	python3 -m venv .venv

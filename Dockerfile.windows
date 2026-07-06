@@ -1,0 +1,32 @@
+# Stage 1: Build the Go engine for Windows
+FROM golang:1.22-alpine AS engine-builder
+WORKDIR /src
+# Copy engine source
+COPY engine/ /src/engine/
+WORKDIR /src/engine
+RUN apk add --no-cache git
+RUN GOOS=windows GOARCH=amd64 go build -o protonvpn-engine.exe helper.go setup_windows.go
+
+# Stage 2: Package the Python CLI with PyInstaller using PyWine
+FROM tobix/pywine:3.11 AS pyinstaller-builder
+WORKDIR /app
+
+# Copy the entire project
+COPY . .
+# Overwrite/Add the compiled Windows engine from Stage 1
+COPY --from=engine-builder /src/engine/protonvpn-engine.exe engine/protonvpn-engine.exe
+
+# Install dependencies and build the standalone .exe
+RUN wine pip install pyinstaller && \
+    wine pip install -r requirements.txt && \
+    wine pyinstaller --onefile \
+        --name protonvpn-next-windows \
+        --icon=icon.ico \
+        --version-file version_info.txt \
+        --add-data "engine/protonvpn-engine.exe;engine" \
+        --add-data "engine/wintun.dll;engine" \
+        protonvpn-next
+
+# Stage 3: Export the final binary to the host
+FROM scratch AS export-stage
+COPY --from=pyinstaller-builder /app/dist/protonvpn-next-windows.exe /
