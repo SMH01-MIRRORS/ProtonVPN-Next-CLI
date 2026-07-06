@@ -218,7 +218,7 @@ ip route add {vpn_ip} via {gw} dev {iface}
 ip route add 0.0.0.0/1 dev {awg_iface}
 ip route add 128.0.0.0/1 dev {awg_iface}
 echo "-> Routing configured successfully. All traffic is now secured."
-echo "-> VPN is running in the background. Use './protonvpn-next disconnect' to stop."
+echo "-> VPN is running in the background. Use 'disconnect' to stop."
 """
             subprocess.run([self.elevate_cmd, "sh", "-c", script])
             
