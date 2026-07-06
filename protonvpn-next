@@ -732,7 +732,7 @@ def ensure_daemon_running():
         with open(daemon_pid_path, "w") as f:
             f.write(str(daemon_proc.pid))
 
-def main():
+def run_cli(args_list=None):
     parser = argparse.ArgumentParser(description="ProtonVPN Next CLI")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
@@ -811,7 +811,7 @@ def main():
     parser_autosetup.add_argument("--proxy-deno", action="store_true", help="Auto-select Deno proxy")
     parser_autosetup.add_argument("--no-proxy", action="store_true", help="Auto-select Direct connection (No proxy)")
     
-    args = parser.parse_args()
+    args = parser.parse_args(args_list)
     
     if args.command == "guest":
         do_guest_login()
@@ -874,6 +874,40 @@ def main():
     
     if args.command != "_daemon":
         ensure_daemon_running()
+
+def main():
+    if len(sys.argv) == 1:
+        print("========================================")
+        print("        Welcome to VPN-Next CLI")
+        print("========================================")
+        print("Interactive shell mode activated.")
+        print("For example, type 'list-servers' or 'autosetup'.")
+        print("Type 'help' to see available commands, or 'exit' to quit.\n")
+        
+        import shlex
+        while True:
+            try:
+                cmd = input("VPN-Next> ").strip()
+                if not cmd:
+                    continue
+                if cmd.lower() in ("exit", "quit"):
+                    break
+                if cmd.lower() == "help":
+                    run_cli(["-h"])
+                    continue
+                
+                run_cli(shlex.split(cmd))
+            except SystemExit:
+                # Prevent sys.exit from killing the interactive shell
+                pass
+            except KeyboardInterrupt:
+                print()
+            except EOFError:
+                break
+            except Exception as e:
+                print(f"[ERROR] {e}")
+    else:
+        run_cli(sys.argv[1:])
 
 if __name__ == "__main__":
     main()
