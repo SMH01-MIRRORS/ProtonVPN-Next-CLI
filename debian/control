@@ -1,0 +1,15 @@
+Source: protonvpn-next
+Section: net
+Priority: optional
+Maintainer: Smh01 <smh01@example.com>
+Build-Depends: debhelper-compat (= 13), golang-go, make
+Standards-Version: 4.6.0
+Homepage: https://github.com/smh01/ProtonVPN-Next-CLI
+
+Package: protonvpn-next
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, python3, python3-cryptography, python3-babel, sudo | doas
+Description: Next-generation CLI for ProtonVPN
+ A lightweight, high-performance CLI client for ProtonVPN featuring
+ native AmneziaWG connections, API block bypass, and cross-platform
+ traffic routing.

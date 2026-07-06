@@ -231,7 +231,7 @@ def do_connect(server_name: str, awg_str: str):
         f.write(config)
     print(f"-> Saved AWG configuration to {config_path}")
     
-    engine_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "engine", "protonvpn-engine"))
+    engine_path = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "engine", "protonvpn-engine"))
     if not os.path.exists(engine_path):
         print(f"[ERROR] Engine binary not found at {engine_path}. Ensure it is compiled.")
         sys.exit(1)

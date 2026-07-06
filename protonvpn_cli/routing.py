@@ -141,7 +141,7 @@ echo "-> VPN is running in the background. Use './protonvpn-next disconnect' to 
             pass
 
     def _download_wintun(self):
-        engine_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "engine")
+        engine_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "engine")
         wintun_path = os.path.join(engine_dir, "wintun.dll")
         if os.path.exists(wintun_path):
             return
