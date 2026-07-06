@@ -624,6 +624,68 @@ def do_manage_daemon(action: str):
         print("-> Background daemon is now ENABLED.")
         # It will be auto-started by ensure_daemon_running at the end of the command
 
+def do_autosetup(proxy_override=None):
+    print("=== ProtonVPN-Next Auto-Setup ===\n")
+    
+    if proxy_override:
+        print(f"-> Using provided API bypass strategy: {proxy_override}")
+        do_set_bypass(proxy_override)
+    else:
+        print("Is access to Proton API blocked in your network?")
+        print("Select an API bypass strategy:")
+        print("0. None (Direct Connection)")
+        print("1. Cloudflare Proxy (--proxy-cf)")
+        print("2. Netlify Proxy (--proxy-netlify)")
+        print("3. Deno Proxy (--proxy-deno)")
+        
+        while True:
+            choice = input("\nEnter your choice (0-3) [0]: ").strip()
+            if not choice:
+                choice = "0"
+            if choice in ["0", "1", "2", "3"]:
+                do_set_bypass(choice)
+                break
+            print("Invalid choice. Please enter a number between 0 and 3.")
+
+    print("\n-> [1/4] Executing guest login...")
+    try:
+        do_guest_login()
+    except SystemExit as e:
+        if e.code != 0:
+            return
+
+    print("\n-> [2/4] Registering VPN certificate...")
+    try:
+        do_register_cert()
+    except SystemExit as e:
+        if e.code != 0:
+            return
+
+    print("\n-> [3/4] Fetching servers list...")
+    try:
+        do_fetch_servers()
+    except SystemExit as e:
+        if e.code != 0:
+            return
+
+    print("\n-> [4/4] Fetching localized data...")
+    import locale
+    lang = "en"
+    try:
+        loc = locale.getlocale()[0]
+        if loc:
+            lang = loc.split('_')[0]
+    except Exception:
+        pass
+    
+    try:
+        do_fetch_locale(lang)
+    except Exception:
+        pass
+        
+    print("\n=== Auto-Setup Complete ===")
+    print("You can now connect using: ./protonvpn-next connect <server_name>")
+
 def ensure_daemon_running():
     db = Database()
     if db.get_setting("daemon_enabled", "1") == "0":
@@ -742,6 +804,13 @@ def main():
     # register-cert command
     subparsers.add_parser("register-cert", help="Generate WG keys and register with API")
     
+    # autosetup command
+    parser_autosetup = subparsers.add_parser("autosetup", help="Interactive auto-setup wizard (login, cert, servers, locale)")
+    parser_autosetup.add_argument("--proxy-cf", action="store_true", help="Auto-select Cloudflare proxy")
+    parser_autosetup.add_argument("--proxy-netlify", action="store_true", help="Auto-select Netlify proxy")
+    parser_autosetup.add_argument("--proxy-deno", action="store_true", help="Auto-select Deno proxy")
+    parser_autosetup.add_argument("--proxy-direct", action="store_true", help="Auto-select Direct connection")
+    
     args = parser.parse_args()
     
     if args.command == "guest":
@@ -772,6 +841,17 @@ def main():
         do_exclude_lan(args.state)
     elif args.command == "split-tunneling":
         do_split_tunneling(args.action, args.value)
+    elif args.command == "autosetup":
+        proxy = None
+        if args.proxy_cf:
+            proxy = "1"
+        elif args.proxy_netlify:
+            proxy = "2"
+        elif args.proxy_deno:
+            proxy = "3"
+        elif args.proxy_direct:
+            proxy = "0"
+        do_autosetup(proxy)
     elif args.command == "novpn":
         if not args.cmd:
             print("[ERROR] Command required for novpn")
