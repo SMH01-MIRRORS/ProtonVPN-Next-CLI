@@ -234,7 +234,12 @@ def elevate_command_linux(cmd_args):
     if elevate_cmd:
         print(f"-> Elevating privileges using {elevate_cmd}...")
         try:
-            subprocess.run([elevate_cmd, sys.executable] + cmd_args, check=True)
+            if getattr(sys, 'frozen', False):
+                base_cmd = [sys.executable]
+            else:
+                base_cmd = [sys.executable, os.path.abspath(sys.argv[0])]
+                
+            subprocess.run([elevate_cmd] + base_cmd + cmd_args, check=True)
             return True
         except subprocess.CalledProcessError as e:
             sys.exit(e.returncode)
@@ -652,7 +657,15 @@ def do_grant_privileges():
         print("[ERROR] This command is only supported on Linux.")
         return
         
-    binary_path = os.path.abspath(sys.executable)
+    if getattr(sys, 'frozen', False):
+        binary_path = os.path.abspath(sys.executable)
+    else:
+        # In dev mode, we would need to grant privileges to python3, which is dangerous!
+        # It's better to just use the script path for the text output as a placeholder.
+        print("[WARNING] You are running from source code. Granting privileges to python3 is a massive security risk.")
+        print("Please compile the binary first (make build-linux-bin) and run grant-privileges from the compiled executable.")
+        binary_path = os.path.abspath(sys.argv[0])
+        
     user = os.environ.get("SUDO_USER", os.environ.get("USER"))
     
     has_doas = shutil.which("doas")
