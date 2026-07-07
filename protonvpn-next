@@ -3,6 +3,7 @@
 import argparse
 import sys
 import os
+
 import subprocess
 import platform
 
@@ -145,7 +146,7 @@ def do_status():
                 output = subprocess.check_output(f'tasklist /FI "PID eq {pid}"', shell=True, text=True)
                 daemon_running = str(pid) in output
             else:
-                import os
+
                 os.kill(pid, 0)
                 daemon_running = True
         except Exception:
@@ -299,7 +300,7 @@ def do_set_bypass(bypass: str):
     print(f"API Block Bypass set to: {desc}")
 
 def elevate_command_linux(cmd_args):
-    import os, shutil, subprocess, sys
+    import shutil
     if os.geteuid() == 0:
         return False
         
@@ -440,7 +441,7 @@ def do_disconnect():
     import subprocess
     import shutil
     import platform
-    import os
+
     
     is_windows = platform.system() == "Windows"
     elevate_cmd = "sudo"
@@ -468,7 +469,7 @@ def do_disconnect():
     print("-> VPN disconnected.")
 
 def do_awg_logs():
-    import os
+
     log_path = os.path.join(get_config_dir(), "awg.log")
     if not os.path.exists(log_path):
         print(f"No logs found at {log_path}")
@@ -478,7 +479,7 @@ def do_awg_logs():
         print(f.read())
 
 def do_client_logs():
-    import os
+
     print("=== Engine & Client Logs ===")
     log_path = os.path.join(get_config_dir(), "client.log")
     if os.path.exists(log_path):
@@ -496,7 +497,7 @@ def do_client_logs():
         print(f"No daemon logs found at {daemon_path}")
 
 def get_split_tunnel_config():
-    import json, os
+    import json
     config_path = os.path.join(get_config_dir(), "split_tunnel.json")
     if os.path.exists(config_path):
         with open(config_path, "r") as f:
@@ -507,7 +508,7 @@ def get_split_tunnel_config():
     return {"exclude_lan": False, "split_items": []}
 
 def save_split_tunnel_config(config):
-    import json, os
+    import json
     config_path = os.path.join(get_config_dir(), "split_tunnel.json")
     with open(config_path, "w") as f:
         json.dump(config, f, indent=4)
@@ -572,7 +573,7 @@ def do_split_tunneling(action, value):
         print(f"[ERROR] Item '{value}' not found.")
 
 def do_novpn(command_args):
-    import os, subprocess, sys
+    
     import platform
     if platform.system() == "Windows":
         print("[ERROR] novpn is only supported on Linux.")
@@ -598,7 +599,7 @@ def do_novpn(command_args):
     os.execvp(command_args[0], command_args)
 
 def do_pid_scanner():
-    import os, time, sys
+    import time
     
     # Needs root
     if os.geteuid() != 0:
@@ -734,7 +735,7 @@ def do_manage_daemon(action: str):
         # It will be auto-started by ensure_daemon_running at the end of the command
 
 def do_grant_privileges():
-    import os, platform, shutil, subprocess, sys
+    import shutil
     if platform.system() != "Linux":
         print("[ERROR] This command is only supported on Linux.")
         return
