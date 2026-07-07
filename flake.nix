@@ -1,5 +1,5 @@
 {
-  description = "Next-generation CLI for ProtonVPN";
+  description = "Next-generation CLI for PVPN";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -22,23 +22,23 @@
           ]);
           
           engine = pkgs.buildGoModule {
-            pname = "protonvpn-engine";
+            pname = "pvpn-engine";
             version = "1.0.0";
             src = ./engine;
             vendorHash = "sha256-gzwD2uSRAIkFpBnoDMsH/jD8OLU1+Dr70R2u1+lZVCo=";
             buildPhase = ''
-              go build -o protonvpn-engine helper.go setup_linux.go
+              go build -o pvpn-engine helper.go setup_linux.go
             '';
             installPhase = ''
               mkdir -p $out/bin
-              cp protonvpn-engine $out/bin/
+              cp pvpn-engine $out/bin/
             '';
           };
           
         in
         {
           default = pkgs.stdenv.mkDerivation {
-            pname = "protonvpn-next-cli";
+            pname = "pvpn-next-cli";
             version = "1.0.0";
 
             src = ./.;
@@ -50,25 +50,25 @@
             '';
 
             installPhase = ''
-              install -d $out/lib/protonvpn-next
-              install -d $out/lib/protonvpn-next/engine
-              install -d $out/lib/protonvpn-next/protonvpn_cli
+              install -d $out/lib/pvpn-next
+              install -d $out/lib/pvpn-next/engine
+              install -d $out/lib/pvpn-next/pvpn_cli
               install -d $out/bin
 
-              install -m 755 protonvpn-next $out/lib/protonvpn-next/protonvpn-next
-              cp -r protonvpn_cli/* $out/lib/protonvpn-next/protonvpn_cli/
+              install -m 755 pvpn-next $out/lib/pvpn-next/pvpn-next
+              cp -r pvpn_cli/* $out/lib/pvpn-next/pvpn_cli/
 
-              install -m 755 ${engine}/bin/protonvpn-engine $out/lib/protonvpn-next/engine/protonvpn-engine
+              install -m 755 ${engine}/bin/pvpn-engine $out/lib/pvpn-next/engine/pvpn-engine
               
-              ln -sf $out/lib/protonvpn-next/protonvpn-next $out/bin/protonvpn-next
+              ln -sf $out/lib/pvpn-next/pvpn-next $out/bin/pvpn-next
 
-              wrapProgram $out/lib/protonvpn-next/protonvpn-next \
+              wrapProgram $out/lib/pvpn-next/pvpn-next \
                 --prefix PATH : ${nixpkgs.lib.makeBinPath [ pkgs.sudo ]} \
                 --set PYTHONPATH "${pythonEnv}/${pkgs.python3.sitePackages}"
             '';
 
             meta = {
-              mainProgram = "protonvpn-next";
+              mainProgram = "pvpn-next";
             };
           };
         });

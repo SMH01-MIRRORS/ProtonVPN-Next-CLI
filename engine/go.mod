@@ -1,4 +1,4 @@
-module protonvpn-engine
+module pvpn-engine
 
 go 1.26.4
 

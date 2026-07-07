@@ -1,8 +1,8 @@
 # Build Instructions
 
-The ProtonVPN-Next CLI consists of two main components:
-1. **The Go Engine (`protonvpn-engine`)**: A compiled Go binary that manages the low-level WireGuard connections and OS network interfaces.
-2. **The Python CLI (`protonvpn-next`)**: A Python script that handles API requests, configuration, and user interaction.
+The PVPN-Next CLI consists of two main components:
+1. **The Go Engine (`pvpn-engine`)**: A compiled Go binary that manages the low-level WireGuard connections and OS network interfaces.
+2. **The Python CLI (`pvpn-next`)**: A Python script that handles API requests, configuration, and user interaction.
 
 The project utilizes `PyInstaller` to bundle the Python CLI and the compiled Go engine into a single, standalone executable for ease of distribution.
 
@@ -26,13 +26,13 @@ make build-linux-bin
 ```
 
 **What this does**:
-1. Compiles the Go engine (`engine/setup_linux.go`, `engine/helper.go`) into an ELF binary `protonvpn-engine`.
+1. Compiles the Go engine (`engine/setup_linux.go`, `engine/helper.go`) into an ELF binary `pvpn-engine`.
 2. Creates a Python virtual environment (`.venv`).
 3. Installs `pyinstaller` inside the virtual environment.
-4. Bundles the Python scripts and the `protonvpn-engine` binary into a single standalone executable using `pyinstaller --onefile`.
-5. The final output is placed in the `dist/` directory as `protonvpn-next-linux`.
+4. Bundles the Python scripts and the `pvpn-engine` binary into a single standalone executable using `pyinstaller --onefile`.
+5. The final output is placed in the `dist/` directory as `pvpn-next-linux`.
 
-You can also install it to your system (`/usr/local/bin` and `/usr/local/share/protonvpn-next`):
+You can also install it to your system (`/usr/local/bin` and `/usr/local/share/pvpn-next`):
 ```bash
 sudo make install
 ```
@@ -63,7 +63,7 @@ make build-windows-docker
 This uses a multi-stage `Dockerfile.windows` to:
 1. Cross-compile the Go engine in a lightweight `golang` Alpine container.
 2. Bundle the executable using PyInstaller inside a `pywine` Wine container.
-3. Export the final `protonvpn-next-windows.exe` binary directly into your `dist/` folder.
+3. Export the final `pvpn-next-windows.exe` binary directly into your `dist/` folder.
 
 ## Continuous Integration (Woodpecker CI)
 
@@ -73,7 +73,7 @@ Because Woodpecker primarily utilizes Linux runners, the pipeline is configured 
 1. **Linux Engine**: Builds the Go engine natively using the `golang:latest` image.
 2. **Windows Engine**: Cross-compiles the Go engine for Windows using the `golang:latest` image.
 3. **Linux CLI**: Bundles the Linux release using the `python:3.11` image.
-4. **Windows CLI**: Uses the `tobix/pywine:3.11` Docker image (which includes a pre-configured Wine emulator and Windows Python) to successfully build the final `protonvpn-next-windows.exe` without requiring a native Windows runner.
+4. **Windows CLI**: Uses the `tobix/pywine:3.11` Docker image (which includes a pre-configured Wine emulator and Windows Python) to successfully build the final `pvpn-next-windows.exe` without requiring a native Windows runner.
 
 ## Linux Packaging (Nix & Arch Linux)
 

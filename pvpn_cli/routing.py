@@ -8,12 +8,12 @@ import socket
 from typing import Optional, List
 
 def get_config_dir() -> str:
-    if "PROTONVPN_CONFIG_DIR" in os.environ:
-        return os.environ["PROTONVPN_CONFIG_DIR"]
+    if "PVPN_CONFIG_DIR" in os.environ:
+        return os.environ["PVPN_CONFIG_DIR"]
         
     if platform.system() == "Windows":
         base = os.environ.get("APPDATA", os.path.expanduser("~"))
-        d = os.path.join(base, "protonvpn-next")
+        d = os.path.join(base, "pvpn-next")
     else:
         orig_user = os.environ.get("SUDO_USER") or os.environ.get("DOAS_USER")
         if not orig_user and os.geteuid() == 0:
@@ -33,7 +33,7 @@ def get_config_dir() -> str:
                 home = os.path.expanduser("~")
         else:
             home = os.path.expanduser("~")
-        d = os.path.join(home, ".config/protonvpn-next")
+        d = os.path.join(home, ".config/pvpn-next")
     os.makedirs(d, exist_ok=True)
     return d
 

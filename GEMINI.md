@@ -1,10 +1,10 @@
-# Project Overview: ProtonVPN-Next-CLI
+# Project Overview: PVPN-Next-CLI
 
-This document provides technical context and strict operational rules for AI assistants working on the ProtonVPN-Next-CLI project.
+This document provides technical context and strict operational rules for AI assistants working on the PVPN-Next-CLI project.
 
 ## Core Identity
-- **Project Name**: ProtonVPN-Next-CLI
-- **Goal**: A command-line interface for ProtonVPN-Next, providing a fast, secure, and native VPN experience for Linux and Windows.
+- **Project Name**: PVPN-Next-CLI
+- **Goal**: A command-line interface for PVPN-Next, providing a fast, secure, and native VPN experience for Linux and Windows.
 
 ## Technical Stack
 - **Language**: Python 3 (CLI logic) and Go (VPN engine)
@@ -13,13 +13,13 @@ This document provides technical context and strict operational rules for AI ass
 - **Build System**: `make` and Docker (for Windows cross-compilation).
 
 ## Project Structure
-- `protonvpn-next`: The main Python entry point script.
-- `protonvpn_cli/`: The Python package containing core logic:
+- `pvpn-next`: The main Python entry point script.
+- `pvpn_cli/`: The Python package containing core logic:
   - `auth.py`: Authentication flow (SRP, 2FA, Captcha proxy handling).
   - `vpn.py`: Interacting with Proton API for server fetching.
   - `database.py`: SQLite wrapper for storing sessions, servers, and settings.
   - `routing.py`: Network routing and firewall manipulation.
-- `engine/`: Source code for the Go-based backend (`protonvpn-engine`).
+- `engine/`: Source code for the Go-based backend (`pvpn-engine`).
 - `dist/`: Directory where the compiled binaries are outputted.
 
 ## Build Commands

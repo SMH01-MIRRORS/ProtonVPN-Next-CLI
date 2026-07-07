@@ -29,7 +29,7 @@ class DeviceInfoProvider:
         # Matches logic in Kotlin DeviceInfoProvider
         cap_manufacturer = self.manufacturer.capitalize()
         device_name = f"{cap_manufacturer} {self.model}"
-        return f"ProtonVPN/{self.SPOOFED_APP_VERSION} (Android {self.android_version}; {device_name})"
+        return f"PVPN/{self.SPOOFED_APP_VERSION} (Android {self.android_version}; {device_name})"
 
     def build_challenge_payload(self) -> Dict[str, Any]:
         """

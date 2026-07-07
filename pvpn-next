@@ -19,12 +19,12 @@ class Colors:
     UNDERLINE = '\033[4m'
 
 def get_config_dir() -> str:
-    if "PROTONVPN_CONFIG_DIR" in os.environ:
-        return os.environ["PROTONVPN_CONFIG_DIR"]
+    if "PVPN_CONFIG_DIR" in os.environ:
+        return os.environ["PVPN_CONFIG_DIR"]
         
     if platform.system() == "Windows":
         base = os.environ.get("APPDATA", os.path.expanduser("~"))
-        d = os.path.join(base, "protonvpn-next")
+        d = os.path.join(base, "pvpn-next")
     else:
         orig_user = os.environ.get("SUDO_USER") or os.environ.get("DOAS_USER")
         if not orig_user and os.geteuid() == 0:
@@ -44,13 +44,13 @@ def get_config_dir() -> str:
                 home = os.path.expanduser("~")
         else:
             home = os.path.expanduser("~")
-        d = os.path.join(home, ".config/protonvpn-next")
+        d = os.path.join(home, ".config/pvpn-next")
     os.makedirs(d, exist_ok=True)
     return d
 
-from protonvpn_cli.auth import ProtonAuthApi
-from protonvpn_cli.vpn import ProtonVpnApi
-from protonvpn_cli.database import Database
+from pvpn_cli.auth import ProtonAuthApi
+from pvpn_cli.vpn import ProtonVpnApi
+from pvpn_cli.database import Database
 
 def elevate_if_needed_windows(cmd_args=None):
     if platform.system() != "Windows":
@@ -77,7 +77,7 @@ def elevate_if_needed_windows(cmd_args=None):
         sys.exit(0)
 
 def do_guest_login():
-    print("Initiating ProtonVPN Guest Login...")
+    print("Initiating PVPN Guest Login...")
     api = ProtonAuthApi()
     try:
         response = api.login_guest()
@@ -93,7 +93,7 @@ def do_guest_login():
 
 def do_login():
     import getpass
-    print("Initiating ProtonVPN User Login...")
+    print("Initiating PVPN User Login...")
     username = input("Username: ").strip()
     if not username:
         print("[ERROR] Username cannot be empty")
@@ -129,7 +129,7 @@ def do_fetch_servers():
 def do_status():
     db = Database()
     session = db.get_session()
-    print("=== ProtonVPN CLI Status ===")
+    print("=== PVPN CLI Status ===")
     
     print(f"[System] OS:      {platform.system()} {platform.release()}")
     
@@ -146,7 +146,7 @@ def do_status():
         except Exception:
             pass
             
-    engine_name = "protonvpn-engine.exe" if platform.system() == "Windows" else "protonvpn-engine"
+    engine_name = "pvpn-engine.exe" if platform.system() == "Windows" else "pvpn-engine"
     if platform.system() == "Windows":
         try:
             import subprocess
@@ -201,7 +201,7 @@ def do_status():
     if session and session.get("access_token"):
         print("[Auth]   Status:  LOGGED IN")
         print(f"[Auth]   UID:     {session.get('uid', 'N/A')}")
-        from protonvpn_cli.vpn import ProtonVpnApi
+        from pvpn_cli.vpn import ProtonVpnApi
         api = ProtonVpnApi()
         try:
             tier = api.get_max_tier()
@@ -304,7 +304,7 @@ def do_list_servers():
         print(f"No servers found for your current plan tier ({max_tier}).")
         return
 
-    print(f"ProtonVPN Servers (Filtered for Max Tier: {max_tier})")
+    print(f"PVPN Servers (Filtered for Max Tier: {max_tier})")
     print("=================")
     countries = sorted(tree.keys())
     for i, country in enumerate(countries):
@@ -490,7 +490,7 @@ def do_connect(server_name: str, awg_str: str):
         print("[ERROR] No WireGuard private key found. Run 'register-cert' first.")
         sys.exit(1)
         
-    from protonvpn_cli.awg import parse_awg_string
+    from pvpn_cli.awg import parse_awg_string
     
     final_awg_str = awg_str
     if not final_awg_str:
@@ -547,7 +547,7 @@ def do_connect(server_name: str, awg_str: str):
     else:
         base_dir = os.path.dirname(os.path.realpath(__file__))
         
-    engine_name = "protonvpn-engine.exe" if platform.system() == "Windows" else "protonvpn-engine"
+    engine_name = "pvpn-engine.exe" if platform.system() == "Windows" else "pvpn-engine"
     engine_path = os.path.abspath(os.path.join(base_dir, "engine", engine_name))
     if not os.path.exists(engine_path):
         print(f"[ERROR] Engine binary not found at {engine_path}. Ensure it is compiled.")
@@ -583,7 +583,7 @@ def do_connect(server_name: str, awg_str: str):
     
     log_path = os.path.join(config_dir, "awg.log")
     
-    from protonvpn_cli.routing import RoutingManager
+    from pvpn_cli.routing import RoutingManager
     rm = RoutingManager(elevate_cmd)
         
     try:
@@ -614,13 +614,13 @@ def do_disconnect():
             elevate_cmd = ""
     
     print("-> Disconnecting VPN...")
-    from protonvpn_cli.routing import RoutingManager
+    from pvpn_cli.routing import RoutingManager
     RoutingManager(elevate_cmd).teardown_routing()
     
     if is_windows:
-        subprocess.run(["taskkill", "/F", "/IM", "protonvpn-engine.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
+        subprocess.run(["taskkill", "/F", "/IM", "pvpn-engine.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
     else:
-        subprocess.run([elevate_cmd, "pkill", "-f", "protonvpn-engine"])
+        subprocess.run([elevate_cmd, "pkill", "-f", "pvpn-engine"])
     print("-> VPN disconnected.")
 
 def do_awg_logs():
@@ -814,7 +814,7 @@ def do_version():
     print("1.0.0")
 
 def do_register_cert():
-    from protonvpn_cli.crypto import ProtonCrypto
+    from pvpn_cli.crypto import ProtonCrypto
     print("Generating WireGuard key pair...")
     try:
         priv_key, pub_key_pem = ProtonCrypto.generate_vpn_keys()
@@ -822,7 +822,7 @@ def do_register_cert():
         print(f"[ERROR] Failed to generate keys: {e}")
         sys.exit(1)
 
-    print("Registering public key with ProtonVPN API...")
+    print("Registering public key with PVPN API...")
     api = ProtonVpnApi()
     try:
         response = api.register_cert(pub_key_pem)
@@ -848,7 +848,7 @@ def do_register_cert():
 
 
 def do_daemon():
-    from protonvpn_cli.workers import BackgroundWorkers
+    from pvpn_cli.workers import BackgroundWorkers
     daemon = BackgroundWorkers()
     daemon.start()
 
@@ -923,17 +923,17 @@ def do_grant_privileges():
     if has_sudo:
         rule = f"{user} ALL=(ALL) NOPASSWD: {binary_path}\n"
         print("\n=== For sudo users (e.g. Ubuntu, Debian, Arch) ===")
-        print("We can automatically create a rule in /etc/sudoers.d/protonvpn-next")
+        print("We can automatically create a rule in /etc/sudoers.d/pvpn-next")
         try:
-            subprocess.run([elevate_cmd, "sh", "-c", f"echo '{rule}' > /etc/sudoers.d/protonvpn-next"], check=True)
+            subprocess.run([elevate_cmd, "sh", "-c", f"echo '{rule}' > /etc/sudoers.d/pvpn-next"], check=True)
             print("-> Successfully added sudoers rule!")
         except Exception:
-            print(f"Please run this manually:\n    echo '{rule}' | sudo tee /etc/sudoers.d/protonvpn-next")
+            print(f"Please run this manually:\n    echo '{rule}' | sudo tee /etc/sudoers.d/pvpn-next")
             
     print("\nAfter granting privileges, the client will automatically execute connection tasks without asking for your password!")
 
 def do_autosetup(proxy_override=None):
-    print("=== ProtonVPN-Next Auto-Setup ===\n")
+    print("=== PVPN-Next Auto-Setup ===\n")
     
     if proxy_override:
         print(f"-> Using provided API bypass strategy: {proxy_override}")
@@ -1055,7 +1055,7 @@ def ensure_daemon_running():
             f.write(str(daemon_proc.pid))
 
 def run_cli(args_list=None):
-    parser = argparse.ArgumentParser(description="ProtonVPN Next CLI")
+    parser = argparse.ArgumentParser(description="PVPN Next CLI")
     parser.add_argument("--config-dir", type=str, help=argparse.SUPPRESS)
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
@@ -1155,7 +1155,7 @@ def run_cli(args_list=None):
     args = parser.parse_args(args_list)
     
     if hasattr(args, 'config_dir') and args.config_dir:
-        os.environ["PROTONVPN_CONFIG_DIR"] = args.config_dir
+        os.environ["PVPN_CONFIG_DIR"] = args.config_dir
         
     if not args.command:
         parser.print_help()
@@ -1224,8 +1224,8 @@ def run_cli(args_list=None):
     elif args.command == "register-cert":
         do_register_cert()
     elif args.command == "trigger-captcha":
-        from protonvpn_cli.auth import ProtonAuthApi
-        from protonvpn_cli.device_info import DeviceInfoProvider
+        from pvpn_cli.auth import ProtonAuthApi
+        from pvpn_cli.device_info import DeviceInfoProvider
         
         print("-> Triggering CAPTCHA by spoofing an Android Emulator (SDK 36, x86_64)...")
         class EmulatorInfoProvider(DeviceInfoProvider):
@@ -1312,10 +1312,10 @@ def main():
                 if cmd.lower().startswith("debug-network"):
                     parts = cmd.lower().split()
                     if len(parts) > 1 and parts[1] == "on":
-                        os.environ["PROTONVPN_DEBUG_NETWORK"] = "1"
+                        os.environ["PVPN_DEBUG_NETWORK"] = "1"
                         print("[INFO] Network debug logs ENABLED.")
                     elif len(parts) > 1 and parts[1] == "off":
-                        os.environ["PROTONVPN_DEBUG_NETWORK"] = "0"
+                        os.environ["PVPN_DEBUG_NETWORK"] = "0"
                         print("[INFO] Network debug logs DISABLED.")
                     else:
                         print("Usage: debug-network on|off")

@@ -127,7 +127,7 @@ class CaptchaProxyServer:
                 if parent.session_id:
                     req.add_header('x-pm-uid', parent.session_id)
 
-                if os.environ.get("PROTONVPN_DEBUG_NETWORK") == "1":
+                if os.environ.get("PVPN_DEBUG_NETWORK") == "1":
                     print(f"[CAPTCHA PROXY] {method} {target_url}", flush=True)
 
                 if method == 'POST':

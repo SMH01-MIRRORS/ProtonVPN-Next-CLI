@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 
 class Database:
     def __init__(self):
-        from protonvpn_cli.routing import get_config_dir
+        from pvpn_cli.routing import get_config_dir
         config_dir = get_config_dir()
         self.db_path = os.path.join(config_dir, "protonvpn.db")
         self._init_db()
