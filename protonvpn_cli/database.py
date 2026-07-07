@@ -58,6 +58,15 @@ class Database:
                     value TEXT
                 )
             """)
+            
+            # AWG Configs table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS awg_configs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE,
+                    params TEXT
+                )
+            """)
             conn.commit()
 
     def set_setting(self, key: str, value: str):
@@ -77,6 +86,44 @@ class Database:
             if row:
                 return row[0]
             return default
+
+    def add_awg_config(self, name: str, params: str):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO awg_configs (name, params)
+                VALUES (?, ?)
+                ON CONFLICT(name) DO UPDATE SET params = excluded.params
+            """, (name, params))
+            conn.commit()
+
+    def delete_awg_config(self, identifier: str) -> bool:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            if identifier.isdigit():
+                cursor.execute("DELETE FROM awg_configs WHERE id = ?", (int(identifier),))
+            else:
+                cursor.execute("DELETE FROM awg_configs WHERE name = ?", (identifier,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def get_awg_configs(self) -> List[Dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM awg_configs ORDER BY id ASC")
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_awg_config(self, identifier: str) -> Optional[Dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            if identifier.isdigit():
+                cursor.execute("SELECT * FROM awg_configs WHERE id = ?", (int(identifier),))
+            else:
+                cursor.execute("SELECT * FROM awg_configs WHERE name = ?", (identifier,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
 
     def save_session(self, access_token: str, refresh_token: str, uid: str, user_id: str):
         with sqlite3.connect(self.db_path) as conn:

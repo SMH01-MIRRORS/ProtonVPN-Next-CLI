@@ -23,7 +23,7 @@
           
           engine = pkgs.buildGoModule {
             pname = "protonvpn-engine";
-            version = "12.0.0-alpha2";
+            version = "1.0.0";
             src = ./engine;
             vendorHash = "sha256-gzwD2uSRAIkFpBnoDMsH/jD8OLU1+Dr70R2u1+lZVCo=";
             buildPhase = ''
@@ -39,7 +39,7 @@
         {
           default = pkgs.stdenv.mkDerivation {
             pname = "protonvpn-next-cli";
-            version = "12.0.0-alpha2";
+            version = "1.0.0";
 
             src = ./.;
 

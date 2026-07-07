@@ -1,5 +1,5 @@
 pkgname=protonvpn-next-cli
-pkgver=12.0.0_alpha2
+pkgver=1.0.0
 pkgrel=1
 pkgdesc="Next-generation CLI for ProtonVPN featuring native AmneziaWG connections and API block bypass"
 arch=('x86_64' 'aarch64')
