@@ -80,6 +80,31 @@ def do_guest_login():
         print(f"\n[ERROR] {str(e)}")
         sys.exit(1)
 
+def do_login():
+    import getpass
+    print("Initiating ProtonVPN User Login...")
+    username = input("Username: ").strip()
+    if not username:
+        print("[ERROR] Username cannot be empty")
+        sys.exit(1)
+    
+    password = getpass.getpass("Password: ")
+    
+    def prompt_2fa():
+        return input("Two-Factor Authentication Code (TOTP): ").strip()
+        
+    api = ProtonAuthApi()
+    try:
+        response = api.login_user(username, password, prompt_2fa)
+        print("\n=== Login Successful ===")
+        print(f"User ID:      {response.get('UserID', 'N/A')}")
+        print(f"Session UID:  {response.get('UID')}")
+        print(f"Scopes:       {', '.join(response.get('Scopes', []))}")
+        print("========================")
+    except Exception as e:
+        print(f"\n[ERROR] {str(e)}")
+        sys.exit(1)
+
 def do_fetch_servers():
     print("Fetching VPN servers from Proton API...")
     api = ProtonVpnApi()
@@ -174,6 +199,35 @@ def do_status():
             print("[Auth]   Tier:    Unknown (Network Error)")
     else:
         print("[Auth]   Status:  NOT LOGGED IN")
+    
+    bypass_val = db.get_setting("api_bypass", "0")
+    bypass_map = {
+        "0": "Direct (vpn-api.proton.me)",
+        "1": "Cloudflare Proxy (api.protonnext.qzz.io)",
+        "2": "Netlify Proxy (shimmering-stroopwafel-51675e.netlify.app)",
+        "3": "Deno Proxy (quick-bluejay-8760.smh01-mirrors.deno.net)"
+    }
+    bypass_desc = bypass_map.get(bypass_val, "Unknown")
+    print(f"[Network] Bypass: {bypass_desc}")
+    
+    if session and session.get("wg_certificate"):
+        import datetime
+        exp = session.get("cert_expires_at")
+        if exp:
+            dt = datetime.datetime.fromtimestamp(exp).strftime('%Y-%m-%d %H:%M:%S')
+            print(f"[Cert]   Status:  Registered (Expires: {dt})")
+        else:
+            print("[Cert]   Status:  Registered")
+    else:
+        print("[Cert]   Status:  Not Registered")
+        
+    split_config = get_split_tunnel_config()
+    items_count = len(split_config.get("split_items", []))
+    exc_lan = split_config.get("exclude_lan", False)
+    if items_count > 0 or exc_lan:
+        print(f"[Split]  Status:  Active (LAN Excluded: {'Yes' if exc_lan else 'No'}, {items_count} items)")
+    else:
+        print("[Split]  Status:  Disabled")
     
     count = db.get_server_count()
     print(f"[Server] Cached:  {count} servers")
@@ -800,9 +854,23 @@ def do_autosetup(proxy_override=None):
                 break
             print("Invalid choice. Please enter a number between 0 and 3.")
 
-    print("\n-> [1/4] Executing guest login...")
+    print("\nSelect Login Method:")
+    print("1. Guest Login (Anonymous)")
+    print("2. User Login (Proton Account)")
+    while True:
+        login_choice = input("Enter your choice (1-2) [1]: ").strip()
+        if not login_choice:
+            login_choice = "1"
+        if login_choice in ["1", "2"]:
+            break
+        print("Invalid choice. Please enter 1 or 2.")
+
+    print(f"\n-> [1/4] Executing {'guest' if login_choice == '1' else 'user'} login...")
     try:
-        do_guest_login()
+        if login_choice == "1":
+            do_guest_login()
+        else:
+            do_login()
     except SystemExit as e:
         if e.code != 0:
             return
@@ -893,6 +961,9 @@ def run_cli(args_list=None):
     # guest command
     subparsers.add_parser("guest", help="Log in via guest access (Android emulation)")
     
+    # login command
+    subparsers.add_parser("login", help="Log in with username and password (SRP & 2FA)")
+    
     # fetch-servers command
     subparsers.add_parser("fetch-servers", help="Fetch and cache VPN servers list")
     
@@ -982,6 +1053,8 @@ def run_cli(args_list=None):
     
     if args.command == "guest":
         do_guest_login()
+    elif args.command == "login":
+        do_login()
     elif args.command == "fetch-servers":
         do_fetch_servers()
     elif args.command == "list-servers":

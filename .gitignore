@@ -17,3 +17,6 @@ __pycache__/
 
 amneziawg-android/
 __pycache__/
+
+# AI Scratch/Test Scripts
+test_bcrypt.py
