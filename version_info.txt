@@ -14,11 +14,11 @@ VSVersionInfo(
       [
       StringTable(
         '040904B0',
-        [StringStruct('CompanyName', 'SMH01'),
-        StringStruct('FileDescription', 'ProtonVPN-Next CLI'),
+        [StringStruct('CompanyName', 'Open Source Community'),
+        StringStruct('FileDescription', 'ProtonVPN-Next CLI (Unofficial)'),
         StringStruct('FileVersion', '1.0.0.0'),
         StringStruct('InternalName', 'protonvpn-next'),
-        StringStruct('LegalCopyright', '© 2026 SMH01. All rights reserved.'),
+        StringStruct('LegalCopyright', 'Open Source Unofficial Client (GPL-3.0)'),
         StringStruct('OriginalFilename', 'protonvpn-next-windows.exe'),
         StringStruct('ProductName', 'VPN-Next'),
         StringStruct('ProductVersion', '1.0.0.0')])
