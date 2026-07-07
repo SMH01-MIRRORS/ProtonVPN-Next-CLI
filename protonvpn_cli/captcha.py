@@ -11,7 +11,16 @@ import time
 
 class CaptchaProxyServer:
     def __init__(self, proxy_base, session_id):
-        self.proxy_base = proxy_base.rstrip('/')
+        from .database import Database
+        bypass = Database().get_setting("api_bypass", "0")
+        if bypass in ("1", "cloudflare"):
+            self.proxy_base = "https://api.protonnext.qzz.io"
+        elif bypass in ("2", "netlify"):
+            self.proxy_base = "https://shimmering-stroopwafel-51675e.netlify.app"
+        elif bypass in ("3", "deno"):
+            self.proxy_base = "https://quick-bluejay-8760.smh01-mirrors.deno.net"
+        else:
+            self.proxy_base = proxy_base.rstrip('/')
         self.session_id = session_id
         self.token = None
         self.server = None
@@ -30,7 +39,12 @@ class CaptchaProxyServer:
 
         self.server = StoppableServer(('127.0.0.1', port), handler_class)
         
-        local_url = f"http://127.0.0.1:{port}/?url=" + urllib.parse.quote(original_web_url)
+        parsed = urllib.parse.urlparse(original_web_url)
+        proxy_path = f"/verify/{parsed.path.lstrip('/')}"
+        if parsed.query:
+            proxy_path += f"?{parsed.query}"
+        
+        local_url = f"http://127.0.0.1:{port}{proxy_path}"
         print(f"\n[CAPTCHA] Proton requires Human Verification.")
         print(f"[CAPTCHA] Opening your default browser...")
         print(f"[CAPTCHA] If the browser does not open, manually navigate to:\n{local_url}\n")
@@ -87,27 +101,46 @@ class CaptchaProxyServer:
                             path += '&embed=true&theme=1&vpn=true'
                     else:
                         path += '?embed=true&theme=1&vpn=true'
+                elif path == '/submit_token':
+                    pass
+                elif path.startswith('/captcha/'):
+                    path = '/verify-api' + path
+                elif not path.startswith('/verify-api') and not path.startswith('/verify'):
+                    path = '/verify' + path
 
                 target_url = parent.proxy_base + path
                 req = urllib.request.Request(target_url, method=method)
                 
                 # Copy headers except those that cause issues
                 for k, v in self.headers.items():
-                    if k.lower() not in ['host', 'accept-encoding', 'connection']:
+                    k_lower = k.lower()
+                    if k_lower not in ['host', 'accept-encoding', 'connection', 'user-agent']:
+                        if k_lower == 'referer' or k_lower == 'origin':
+                            v = 'https://verify.proton.me'
                         req.add_header(k, v)
-                
-                req.add_header('x-pm-appversion', 'android-vpn@1.0.0-dev+play')
+
+                from .device_info import DeviceInfoProvider
+                req.add_header('User-Agent', DeviceInfoProvider().get_spoofed_user_agent())
+                req.add_header('x-pm-appversion', f'android-vpn@{DeviceInfoProvider.SPOOFED_APP_VERSION}-dev+play')
                 req.add_header('x-pm-apiversion', '4')
                 if parent.session_id:
                     req.add_header('x-pm-uid', parent.session_id)
+
+
                 
                 if method == 'POST':
                     content_length = int(self.headers.get('Content-Length', 0))
                     if content_length > 0:
                         req.data = self.rfile.read(content_length)
 
+                class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+                    def redirect_request(self, req, fp, code, msg, headers, newurl):
+                        return None
+                
+                opener = urllib.request.build_opener(NoRedirectHandler)
+
                 try:
-                    res = urllib.request.urlopen(req)
+                    res = opener.open(req)
                     body = res.read()
                     headers = res.headers
                     status = res.status
@@ -130,6 +163,15 @@ class CaptchaProxyServer:
                         continue
                     if k_lower == 'content-type' and 'text/html' in v.lower():
                         is_html = True
+                        
+                    if k_lower == 'location':
+                        if v.startswith(parent.proxy_base):
+                            v = v.replace(parent.proxy_base, '')
+                        elif v.startswith('https://verify.proton.me'):
+                            v = v.replace('https://verify.proton.me', '/verify')
+                        elif v.startswith('https://verify-api.proton.me'):
+                            v = v.replace('https://verify-api.proton.me', '/verify-api')
+                            
                     self.send_header(k, v)
                 
                 self.send_header('Access-Control-Allow-Origin', '*')

@@ -1039,19 +1039,34 @@ def run_cli(args_list=None):
         from protonvpn_cli.auth import ProtonAuthApi
         from protonvpn_cli.device_info import DeviceInfoProvider
         
-        print("-> Triggering CAPTCHA by spoofing an Android Emulator (SDK 36)...")
+        print("-> Triggering CAPTCHA by spoofing an Android Emulator (SDK 36, x86_64)...")
         class EmulatorInfoProvider(DeviceInfoProvider):
+            def __init__(self):
+                super().__init__()
+                self.android_version = "16"
+                self.manufacturer = "Google"
+                self.model = "sdk_gphone64_x86_64"
+                self.language = "en"
+                self.region_code = "US"
+                self.timezone = "Europe/Volgograd"
+                self.timezone_offset = -180
+                self.device_hash = -1631082355
+                
             def build_challenge_payload(self):
                 payload = super().build_challenge_payload()
                 challenge = payload["Payload"]["vpn-android-v4-challenge-0"]
-                challenge["deviceName"] = "sdk_gphone64_arm64"
-                challenge["isJailbreak"] = True
-                self.manufacturer = "Google"
-                self.model = "sdk_gphone64_arm64"
+                challenge["isJailbreak"] = False
+                challenge["isEmulator"] = True
+                challenge["storageCapacity"] = 5.800384521484375
+                challenge["isDarkmodeOn"] = False
+                challenge["preferredContentSize"] = "1.0"
+                challenge["keyboards"] = ["com.google.android.inputmethod.latin", "com.google.android.tts"]
                 return payload
                 
         api = ProtonAuthApi()
         api.device_info = EmulatorInfoProvider()
+        api.headers["User-Agent"] = api.device_info.get_spoofed_user_agent()
+        
         try:
             api.login_guest()
             print("[WARNING] The API accepted the emulator fingerprint without requiring a CAPTCHA.")

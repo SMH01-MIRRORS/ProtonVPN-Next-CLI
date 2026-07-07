@@ -28,15 +28,30 @@ class ProtonAuthApi:
             "Accept": "application/vnd.protonmail.v1+json",
             "Content-Type": "application/json"
         }
+        self.debug = False
 
     def _post(self, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> Dict[str, Any]:
         data = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+        
+        if getattr(self, 'debug', False):
+            print(f"\n[DEBUG] --- HTTP POST ---")
+            print(f"[DEBUG] URL: {url}")
+            print(f"[DEBUG] Headers: {json.dumps(headers, indent=2)}")
+            print(f"[DEBUG] Payload: {json.dumps(payload, indent=2)}")
+            
         try:
             with urllib.request.urlopen(req) as response:
-                return json.loads(response.read().decode('utf-8'))
+                resp_data = json.loads(response.read().decode('utf-8'))
+                if getattr(self, 'debug', False):
+                    print(f"[DEBUG] Response Status: {response.status}")
+                    print(f"[DEBUG] Response Body: {json.dumps(resp_data, indent=2)}")
+                return resp_data
         except urllib.error.HTTPError as e:
             error_body = e.read().decode('utf-8')
+            if getattr(self, 'debug', False):
+                print(f"[DEBUG] Error Status: {e.code}")
+                print(f"[DEBUG] Error Body: {error_body}")
             try:
                 error_data = json.loads(error_body)
                 if "Code" in error_data:
