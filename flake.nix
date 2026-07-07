@@ -18,7 +18,23 @@
           pythonEnv = pkgs.python3.withPackages (ps: with ps; [
             cryptography
             babel
+            bcrypt
           ]);
+          
+          engine = pkgs.buildGoModule {
+            pname = "protonvpn-engine";
+            version = "12.0.0-alpha2";
+            src = ./engine;
+            vendorHash = "sha256-gzwD2uSRAIkFpBnoDMsH/jD8OLU1+Dr70R2u1+lZVCo=";
+            buildPhase = ''
+              go build -o protonvpn-engine helper.go setup_linux.go
+            '';
+            installPhase = ''
+              mkdir -p $out/bin
+              cp protonvpn-engine $out/bin/
+            '';
+          };
+          
         in
         {
           default = pkgs.stdenv.mkDerivation {
@@ -27,20 +43,33 @@
 
             src = ./.;
 
-            buildInputs = [ pythonEnv pkgs.go pkgs.makeWrapper ];
+            buildInputs = [ pythonEnv pkgs.makeWrapper ];
 
             buildPhase = ''
-              make build
+              echo "Skipping make build"
             '';
 
             installPhase = ''
-              make install DESTDIR=$out PREFIX=""
+              install -d $out/lib/protonvpn-next
+              install -d $out/lib/protonvpn-next/engine
+              install -d $out/lib/protonvpn-next/protonvpn_cli
+              install -d $out/bin
+
+              install -m 755 protonvpn-next $out/lib/protonvpn-next/protonvpn-next
+              cp -r protonvpn_cli/* $out/lib/protonvpn-next/protonvpn_cli/
+
+              install -m 755 ${engine}/bin/protonvpn-engine $out/lib/protonvpn-next/engine/protonvpn-engine
               
-              # Wrap the python executable to ensure it finds its dependencies
+              ln -sf $out/lib/protonvpn-next/protonvpn-next $out/bin/protonvpn-next
+
               wrapProgram $out/lib/protonvpn-next/protonvpn-next \
                 --prefix PATH : ${nixpkgs.lib.makeBinPath [ pkgs.sudo ]} \
-                --set PYTHONPATH "${pythonEnv}/lib/python3.11/site-packages"
+                --set PYTHONPATH "${pythonEnv}/${pkgs.python3.sitePackages}"
             '';
+
+            meta = {
+              mainProgram = "protonvpn-next";
+            };
           };
         });
     };
