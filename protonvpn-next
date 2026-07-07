@@ -1121,6 +1121,17 @@ def main():
                 if cmd.lower() == "help":
                     run_cli(["-h"])
                     continue
+                if cmd.lower().startswith("debug-network"):
+                    parts = cmd.lower().split()
+                    if len(parts) > 1 and parts[1] == "on":
+                        os.environ["PROTONVPN_DEBUG_NETWORK"] = "1"
+                        print("[INFO] Network debug logs ENABLED.")
+                    elif len(parts) > 1 and parts[1] == "off":
+                        os.environ["PROTONVPN_DEBUG_NETWORK"] = "0"
+                        print("[INFO] Network debug logs DISABLED.")
+                    else:
+                        print("Usage: debug-network on|off")
+                    continue
                 
                 run_cli(shlex.split(cmd))
             except SystemExit:

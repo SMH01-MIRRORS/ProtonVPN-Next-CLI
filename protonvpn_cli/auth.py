@@ -28,7 +28,7 @@ class ProtonAuthApi:
             "Accept": "application/vnd.protonmail.v1+json",
             "Content-Type": "application/json"
         }
-        self.debug = False
+        self.debug = os.environ.get("PROTONVPN_DEBUG_NETWORK") == "1"
 
     def _post(self, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> Dict[str, Any]:
         data = json.dumps(payload).encode('utf-8')
