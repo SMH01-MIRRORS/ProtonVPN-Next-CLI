@@ -37,27 +37,40 @@ class ProtonAuthApi:
                 return json.loads(response.read().decode('utf-8'))
         except urllib.error.HTTPError as e:
             error_body = e.read().decode('utf-8')
+            try:
+                error_data = json.loads(error_body)
+                if "Code" in error_data:
+                    return error_data
+            except Exception:
+                pass
             raise Exception(f"HTTP {e.code}: {error_body}")
         except urllib.error.URLError as e:
             raise Exception(f"Network error: {e.reason}")
 
-    def create_anonymous_session(self, challenge_payload: Dict[str, Any]) -> Tuple[str, str]:
+    def create_anonymous_session(self, challenge_payload: Dict[str, Any], captcha_token: str = None) -> Tuple[str, str]:
         """
         Phase 0: Request anonymous session.
         Returns: (access_token, session_id)
         """
         url = f"{self.BASE_URL}/auth/v4/sessions"
         
-        data = self._post(url, self.headers, challenge_payload)
+        headers = self.headers.copy()
+        if captcha_token:
+            headers["x-pm-human-verification-token"] = captcha_token
+            headers["x-pm-human-verification-token-type"] = "captcha"
+            
+        data = self._post(url, headers, challenge_payload)
         
         if data.get("Code") != 1000:
+            if data.get("Code") in (9001, 12087):
+                return None, data
             raise Exception(f"Failed to create anonymous session. Code: {data.get('Code')} Error: {data}")
             
         access_token = data.get("AccessToken")
         session_id = data.get("UID")
         return access_token, session_id
 
-    def perform_login_less(self, access_token: str, session_id: str, challenge_payload: Dict[str, Any]) -> Dict[str, Any]:
+    def perform_login_less(self, access_token: str, session_id: str, challenge_payload: Dict[str, Any], captcha_token: str = None) -> Dict[str, Any]:
         """
         Phase 1: Upgrade to guest session using credential-less endpoint.
         """
@@ -65,26 +78,79 @@ class ProtonAuthApi:
         headers = self.headers.copy()
         headers["Authorization"] = f"Bearer {access_token}"
         headers["x-pm-uid"] = session_id
+        if captcha_token:
+            headers["x-pm-human-verification-token"] = captcha_token
+            headers["x-pm-human-verification-token-type"] = "captcha"
         
         data = self._post(url, headers, challenge_payload)
         
         if data.get("Code") != 1000:
+            if data.get("Code") in (9001, 12087):
+                return data
             raise Exception(f"Guest login rejected. Code: {data.get('Code')} Error: {data}")
             
         return data
+
+    def _handle_captcha(self, error_data: Dict[str, Any], session_id: str = None) -> str:
+        code = error_data.get("Code")
+        if code == 12087:
+            raise Exception("Captcha session expired. Please try again.")
+            
+        details = error_data.get("Details", {})
+        web_url = details.get("WebUrl")
+        if not web_url:
+            raise Exception(f"Captcha required but no WebUrl provided: {error_data}")
+            
+        from .captcha import CaptchaProxyServer
+        # For simplicity, we use netlify proxy to circumvent DPI
+        proxy = CaptchaProxyServer("https://shimmering-stroopwafel-51675e.netlify.app", session_id)
+        token = proxy.start_and_wait(web_url)
+        return token
 
     def login_guest(self) -> Dict[str, Any]:
         """
         Performs the complete guest login flow.
         """
         payload = self.device_info.build_challenge_payload()
+        captcha_token = None
+        anon_token, anon_uid = None, None
+        used_token_in_phase_0 = False
         
-        print("-> Requesting anonymous session (Phase 0)...")
-        anon_token, anon_uid = self.create_anonymous_session(payload)
+        while True:
+            print("-> Requesting anonymous session (Phase 0)...")
+            res_token, res_uid_or_err = self.create_anonymous_session(payload, captcha_token)
+            if res_token is None:
+                # It's an error
+                err = res_uid_or_err
+                if err.get("Code") in (9001, 12087):
+                    # We don't have a session ID yet, so we pass None
+                    captcha_token = self._handle_captcha(err, None)
+                    continue
+                else:
+                    raise Exception(f"Failed Phase 0: {err}")
+            else:
+                anon_token = res_token
+                anon_uid = res_uid_or_err
+                if captcha_token:
+                    used_token_in_phase_0 = True
+                break
+                
         print(f"-> Anonymous session obtained. UID: {anon_uid}")
         
-        print("-> Upgrading to guest session (Phase 1)...")
-        guest_response = self.perform_login_less(anon_token, anon_uid, payload)
+        while True:
+            print("-> Upgrading to guest session (Phase 1)...")
+            phase1_token = None if used_token_in_phase_0 else captcha_token
+            guest_response = self.perform_login_less(anon_token, anon_uid, payload, phase1_token)
+            
+            if guest_response.get("Code") != 1000:
+                if guest_response.get("Code") in (9001, 12087):
+                    captcha_token = self._handle_captcha(guest_response, anon_uid)
+                    used_token_in_phase_0 = False
+                    continue
+                else:
+                    raise Exception(f"Failed Phase 1: {guest_response}")
+            else:
+                break
         
         # If successful, the response contains the final access token.
         # If missing in response, fallback to the anonymous one.
