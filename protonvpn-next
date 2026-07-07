@@ -97,23 +97,69 @@ def do_status():
     print(f"[System] OS:      {platform.system()} {platform.release()}")
     
     routing_file = os.path.join(get_config_dir(), "routing_state.json")
+    vpn_running = False
+    vpn_ip = "Unknown"
+    
     if os.path.exists(routing_file):
         try:
             import json
             with open(routing_file, "r") as f:
                 state = json.load(f)
             vpn_ip = state.get("vpn_ip", "Unknown")
-            print(f"[VPN]    State:   CONNECTED (Server IP: {vpn_ip})")
         except Exception:
-            print("[VPN]    State:   ERROR reading state")
+            pass
+            
+    engine_name = "protonvpn-engine.exe" if platform.system() == "Windows" else "protonvpn-engine"
+    if platform.system() == "Windows":
+        try:
+            import subprocess
+            output = subprocess.check_output(f'tasklist /FI "IMAGENAME eq {engine_name}"', shell=True, text=True)
+            vpn_running = engine_name.lower() in output.lower()
+        except Exception:
+            pass
+    else:
+        try:
+            import subprocess
+            vpn_running = subprocess.run(["pgrep", "-f", engine_name], capture_output=True).returncode == 0
+        except Exception:
+            pass
+
+    if vpn_running:
+        print(f"[VPN]    State:   CONNECTED (Server IP: {vpn_ip})")
     else:
         print("[VPN]    State:   DISCONNECTED")
+        if os.path.exists(routing_file):
+            try:
+                os.remove(routing_file)
+            except Exception:
+                pass
         
     daemon_pid = os.path.join(get_config_dir(), "daemon.pid")
+    daemon_running = False
     if os.path.exists(daemon_pid):
+        try:
+            with open(daemon_pid, "r") as f:
+                pid = int(f.read().strip())
+            if platform.system() == "Windows":
+                import subprocess
+                output = subprocess.check_output(f'tasklist /FI "PID eq {pid}"', shell=True, text=True)
+                daemon_running = str(pid) in output
+            else:
+                import os
+                os.kill(pid, 0)
+                daemon_running = True
+        except Exception:
+            pass
+            
+    if daemon_running:
         print("[Daemon] State:   RUNNING")
     else:
         print("[Daemon] State:   STOPPED")
+        if os.path.exists(daemon_pid):
+            try:
+                os.remove(daemon_pid)
+            except Exception:
+                pass
     
     if session and session.get("access_token"):
         print("[Auth]   Status:  LOGGED IN")

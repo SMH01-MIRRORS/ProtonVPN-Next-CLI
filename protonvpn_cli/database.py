@@ -82,8 +82,14 @@ class Database:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT OR REPLACE INTO sessions (id, access_token, refresh_token, uid, user_id, updated_at)
+                INSERT INTO sessions (id, access_token, refresh_token, uid, user_id, updated_at)
                 VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET
+                    access_token=excluded.access_token,
+                    refresh_token=excluded.refresh_token,
+                    uid=excluded.uid,
+                    user_id=excluded.user_id,
+                    updated_at=CURRENT_TIMESTAMP
             """, (access_token, refresh_token, uid, user_id))
             conn.commit()
 
@@ -101,13 +107,14 @@ class Database:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                UPDATE sessions SET 
-                    wg_private_key = ?, 
-                    wg_certificate = ?, 
-                    cert_expires_at = ?,
-                    cert_refresh_at = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = 1
+                INSERT INTO sessions (id, wg_private_key, wg_certificate, cert_expires_at, cert_refresh_at, updated_at)
+                VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET
+                    wg_private_key=excluded.wg_private_key,
+                    wg_certificate=excluded.wg_certificate,
+                    cert_expires_at=excluded.cert_expires_at,
+                    cert_refresh_at=excluded.cert_refresh_at,
+                    updated_at=CURRENT_TIMESTAMP
             """, (wg_private_key, wg_certificate, expires_at, refresh_at))
             conn.commit()
 
