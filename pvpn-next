@@ -755,7 +755,7 @@ def do_connect(server_name: str, awg_str: str):
     db.set_setting("current_real_ip", "")
         
     try:
-        rm.start_vpn(vpn_ip=entry_ip, engine_path=engine_path, config_path=config_path, log_path=log_path)
+        rm.start_vpn(vpn_ip=entry_ip, engine_path=engine_path, config_path=config_path, log_path=log_path, dns_ips=dns_ips)
     except KeyboardInterrupt:
         print("\nCancelled.")
         sys.exit(0)

@@ -133,14 +133,15 @@ class RoutingManager:
                 apps.append(item["value"])
         return ips, apps
 
-    def start_vpn(self, vpn_ip: str, engine_path: str, config_path: str, log_path: str, awg_ip: str = "10.2.0.2", awg_iface: str = "awg0"):
+    def start_vpn(self, vpn_ip: str, engine_path: str, config_path: str, log_path: str, awg_ip: str = "10.2.0.2", awg_iface: str = "awg0", dns_ips: str = "10.2.0.1"):
         print(f"-> Setting up traffic routing for {vpn_ip}...")
         
         split_cfg = self._get_split_config()
         exclude_ips, exclude_apps = self._resolve_ips(split_cfg.get("split_items", []))
         exclude_lan = split_cfg.get("exclude_lan", False)
+        dns_list = [ip.strip() for ip in dns_ips.split(",") if ip.strip()]
         
-        state = {"vpn_ip": vpn_ip, "gw": None, "iface": None, "os": sys.platform, "ips": exclude_ips, "exclude_lan": exclude_lan, "cgroup_created": False}
+        state = {"vpn_ip": vpn_ip, "gw": None, "iface": None, "os": sys.platform, "ips": exclude_ips, "exclude_lan": exclude_lan, "cgroup_created": False, "dns_list": dns_list}
         
         if self.is_windows:
             gw = self._get_windows_default_gateway()
@@ -184,10 +185,15 @@ class RoutingManager:
                     self._run_cmd(["route", "ADD", "172.16.0.0", "MASK", "255.240.0.0", gw])
                     self._run_cmd(["route", "ADD", "192.168.0.0", "MASK", "255.255.0.0", gw])
                 
-                # To prevent routing loop and ensure all traffic goes to Wintun
                 if iface_idx:
                     self._run_cmd(["route", "ADD", "0.0.0.0", "MASK", "128.0.0.0", "0.0.0.0", "IF", iface_idx])
                     self._run_cmd(["route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", "0.0.0.0", "IF", iface_idx])
+                    
+                    if dns_list:
+                        self._run_cmd(["netsh", "interface", "ipv4", "set", "dnsservers", f'name="{awg_iface}"', "static", dns_list[0], "primary"])
+                        if len(dns_list) > 1:
+                            for idx, dns_ip in enumerate(dns_list[1:], start=2):
+                                self._run_cmd(["netsh", "interface", "ipv4", "add", "dnsservers", f'name="{awg_iface}"', dns_ip, f"index={idx}"])
                 else:
                     self._run_cmd(["route", "ADD", "0.0.0.0", "MASK", "128.0.0.0", awg_ip])
                     self._run_cmd(["route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", awg_ip])
@@ -236,10 +242,26 @@ class RoutingManager:
                 pass
                 
             state["ipv6_disabled_originally"] = ipv6_disabled
+            state["dns_backup"] = False
             
             with open(self.state_file, "w") as f:
                 json.dump(state, f)
             client_log_path = log_path.replace("awg.log", "client.log")
+            
+            dns_setup_script = ""
+            if dns_list:
+                dns_lines = "\\n".join([f"nameserver {ip}" for ip in dns_list])
+                dns_setup_script = f"""
+if [ ! -f /etc/resolv.conf.pvpn.bak ]; then
+    cp -a /etc/resolv.conf /etc/resolv.conf.pvpn.bak
+fi
+rm -f /etc/resolv.conf
+echo -e "{dns_lines}" > /etc/resolv.conf
+"""
+                state["dns_backup"] = True
+                with open(self.state_file, "w") as f:
+                    json.dump(state, f)
+                    
             script = f"""
 nohup {engine_path} < "{config_path}" > "{log_path}" 2> "{client_log_path}" &
 # Wait for interface
@@ -249,6 +271,7 @@ for i in $(seq 1 30); do
 done
 sysctl -e -w net.ipv6.conf.all.disable_ipv6=1 2>/dev/null || true
 sysctl -e -w net.ipv6.conf.default.disable_ipv6=1 2>/dev/null || true
+{dns_setup_script}
 ip route add {vpn_ip} via {gw} dev {iface}
 {split_cmds_str}
 ip route add 0.0.0.0/1 dev {awg_iface}
@@ -319,6 +342,16 @@ echo "-> VPN is running in the background. Use 'disconnect' to stop."
             if not ipv6_disabled_originally:
                 subprocess.run(self._elevate(["sh", "-c", "sysctl -e -w net.ipv6.conf.all.disable_ipv6=0 2>/dev/null || true"]), capture_output=True)
                 subprocess.run(self._elevate(["sh", "-c", "sysctl -e -w net.ipv6.conf.default.disable_ipv6=0 2>/dev/null || true"]), capture_output=True)
+                
+            # --- DNS Restore ---
+            if state.get("dns_backup", False):
+                restore_dns_script = """
+if [ -f /etc/resolv.conf.pvpn.bak ]; then
+    rm -f /etc/resolv.conf
+    mv /etc/resolv.conf.pvpn.bak /etc/resolv.conf
+fi
+"""
+                subprocess.run(self._elevate(["sh", "-c", restore_dns_script]), capture_output=True)
             
         try:
             os.remove(self.state_file)
