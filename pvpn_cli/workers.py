@@ -73,6 +73,11 @@ class BackgroundWorkers:
         
         while True:
             if os.path.exists(routing_file):
+                current_ip = self.db.get_setting("current_real_ip", "")
+                if current_ip:
+                    time.sleep(5)
+                    continue
+                    
                 try:
                     req = urllib.request.Request("https://1.1.1.1/cdn-cgi/trace", headers={'User-Agent': 'Mozilla/5.0'})
                     resp = urllib.request.urlopen(req, timeout=3).read().decode('utf-8')

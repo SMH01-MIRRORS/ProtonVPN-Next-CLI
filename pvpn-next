@@ -194,7 +194,8 @@ def do_status():
             pass
 
     if vpn_running:
-        print(f"[VPN]    State:   CONNECTED (Server IP: {vpn_ip})")
+        active_server = db.get_setting("active_server_name", "Unknown")
+        print(f"[VPN]    State:   CONNECTED (Server: {active_server} | IP: {vpn_ip})")
         real_ip = db.get_setting("current_real_ip", "")
         if real_ip:
             print(f"[VPN]    Real IP: {real_ip}")
@@ -736,6 +737,9 @@ def do_connect(server_name: str, awg_str: str):
     
     from pvpn_cli.routing import RoutingManager
     rm = RoutingManager(elevate_cmd)
+        
+    db.set_setting("active_server_name", server_name)
+    db.set_setting("current_real_ip", "")
         
     try:
         rm.start_vpn(vpn_ip=entry_ip, engine_path=engine_path, config_path=config_path, log_path=log_path)
