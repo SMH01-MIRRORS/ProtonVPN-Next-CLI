@@ -407,6 +407,77 @@ def do_set_mtu(mtu_str: str):
     db.set_setting("mtu", mtu_str)
     print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} MTU set to: {mtu_str}")
 
+def do_dns_config(action: str, args):
+    db = Database()
+    
+    # Predefined servers
+    predefined = {
+        "cloudflare": "1.1.1.1, 1.0.0.1",
+        "adguard": "94.140.14.14, 94.140.15.15",
+        "google": "8.8.8.8, 8.8.4.4",
+        "proton": "10.2.0.1"
+    }
+
+    import json
+    
+    def get_custom_dns():
+        custom_str = db.get_setting("custom_dns_profiles", "{}")
+        try:
+            return json.loads(custom_str)
+        except:
+            return {}
+            
+    def save_custom_dns(profiles):
+        db.set_setting("custom_dns_profiles", json.dumps(profiles))
+
+    if action == "list":
+        active_dns = db.get_setting("active_dns_profile", "cloudflare")
+        print("=== DNS Profiles ===")
+        print("--- Built-in ---")
+        for k, v in predefined.items():
+            marker = f"{Colors.OKGREEN}*[ACTIVE]*{Colors.ENDC}" if k == active_dns else ""
+            print(f"{k:<15} | {v:<30} {marker}")
+        
+        custom_dns = get_custom_dns()
+        if custom_dns:
+            print("\n--- Custom ---")
+            for k, v in custom_dns.items():
+                marker = f"{Colors.OKGREEN}*[ACTIVE]*{Colors.ENDC}" if k == active_dns else ""
+                print(f"{k:<15} | {v:<30} {marker}")
+                
+    elif action == "add":
+        if len(args) < 2:
+            print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} Usage: dns add <name> <ip1,ip2...>")
+            return
+        name = args[0].lower()
+        if name in predefined:
+            print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} Cannot overwrite built-in profile: {name}")
+            return
+        ips = "".join(args[1:]) # Combine rest
+        custom_dns = get_custom_dns()
+        custom_dns[name] = ips
+        save_custom_dns(custom_dns)
+        print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} Added custom DNS profile: {name} ({ips})")
+        
+    elif action == "set":
+        if not args:
+            print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} Usage: dns set <name>")
+            return
+        name = args[0].lower()
+        custom_dns = get_custom_dns()
+        
+        if name in predefined or name in custom_dns:
+            db.set_setting("active_dns_profile", name)
+            print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} Active DNS set to: {name}")
+        else:
+            print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} DNS profile '{name}' not found. Use 'dns list' to see available profiles.")
+            
+    elif action == "unset":
+        db.set_setting("active_dns_profile", "proton")
+        print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} DNS unset. Reverting to default proton DNS (10.2.0.1).")
+    else:
+        print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} Unknown DNS action.")
+
 def do_awg_config(action: str, args):
     db = Database()
     if action == "create":
@@ -565,9 +636,30 @@ def do_connect(server_name: str, awg_str: str):
     config_lines = [
         "[Interface]",
         f"PrivateKey = {private_key}",
-        "Address = 10.2.0.2/32",
-        "DNS = 10.2.0.1"
+        "Address = 10.2.0.2/32"
     ]
+    
+    # DNS configuration
+    active_dns_name = db.get_setting("active_dns_profile", "cloudflare")
+    if active_dns_name == "proton":
+        dns_ips = "10.2.0.1"
+    else:
+        predefined = {
+            "cloudflare": "1.1.1.1, 1.0.0.1",
+            "adguard": "94.140.14.14, 94.140.15.15",
+            "google": "8.8.8.8, 8.8.4.4"
+        }
+        if active_dns_name in predefined:
+            dns_ips = predefined[active_dns_name]
+        else:
+            import json
+            try:
+                custom_dns = json.loads(db.get_setting("custom_dns_profiles", "{}"))
+                dns_ips = custom_dns.get(active_dns_name, "10.2.0.1")
+            except:
+                dns_ips = "10.2.0.1"
+                
+    config_lines.append(f"DNS = {dns_ips}")
     
     mtu = db.get_setting("mtu", "1280")
     if mtu:
@@ -1166,6 +1258,11 @@ def run_cli(args_list=None):
     mtu_parser = subparsers.add_parser("set-mtu", help="Set MTU size for VPN interface (default: 1280 for Wi-Fi compatibility)")
     mtu_parser.add_argument("mtu", help="MTU value (e.g. 1280, 1360, 1420)")
 
+    # dns command
+    dns_parser = subparsers.add_parser("dns", help="Manage custom DNS configurations")
+    dns_parser.add_argument("action", choices=["list", "set", "add", "unset"], help="DNS action to perform")
+    dns_parser.add_argument("dns_args", nargs=argparse.REMAINDER, help="DNS profile name and/or IP addresses")
+
     # status command
     subparsers.add_parser("status", help="Show current login and server cache status")
     
@@ -1247,6 +1344,8 @@ def run_cli(args_list=None):
         do_set_awg(args.params)
     elif args.command == "set-mtu":
         do_set_mtu(args.mtu)
+    elif args.command == "dns":
+        do_dns_config(args.action, args.dns_args)
     elif args.command == "awg-config":
         do_awg_config(args.action, args.config_args)
     elif args.command == "fetch-locale":

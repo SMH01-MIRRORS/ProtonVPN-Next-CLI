@@ -226,6 +226,17 @@ class RoutingManager:
                 
             split_cmds_str = "\n".join(split_cmds)
             
+            # --- IPv6 Leak Blocking ---
+            ipv6_disabled = False
+            try:
+                out = subprocess.run(["sysctl", "-n", "net.ipv6.conf.all.disable_ipv6"], capture_output=True, text=True).stdout.strip()
+                if out == "1":
+                    ipv6_disabled = True
+            except:
+                pass
+                
+            state["ipv6_disabled_originally"] = ipv6_disabled
+            
             with open(self.state_file, "w") as f:
                 json.dump(state, f)
             client_log_path = log_path.replace("awg.log", "client.log")
@@ -236,6 +247,8 @@ for i in $(seq 1 30); do
     ip link show {awg_iface} >/dev/null 2>&1 && break
     sleep 0.5
 done
+sysctl -w net.ipv6.conf.all.disable_ipv6=1
+sysctl -w net.ipv6.conf.default.disable_ipv6=1
 ip route add {vpn_ip} via {gw} dev {iface}
 {split_cmds_str}
 ip route add 0.0.0.0/1 dev {awg_iface}
@@ -300,6 +313,12 @@ echo "-> VPN is running in the background. Use 'disconnect' to stop."
                 
             subprocess.run(self._elevate(["ip", "route", "del", "0.0.0.0/1"]), capture_output=True)
             subprocess.run(self._elevate(["ip", "route", "del", "128.0.0.0/1"]), capture_output=True)
+            
+            # --- IPv6 Leak Blocking Restore ---
+            ipv6_disabled_originally = state.get("ipv6_disabled_originally", False)
+            if not ipv6_disabled_originally:
+                subprocess.run(self._elevate(["sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=0"]), capture_output=True)
+                subprocess.run(self._elevate(["sysctl", "-w", "net.ipv6.conf.default.disable_ipv6=0"]), capture_output=True)
             
         try:
             os.remove(self.state_file)
