@@ -66,8 +66,35 @@ class BackgroundWorkers:
             except Exception as e:
                 print(f"[Daemon] [ERROR] Certificate update failed with error: {e}")
 
+    def _ip_checker_loop(self):
+        import urllib.request
+        from .routing import get_config_dir
+        routing_file = os.path.join(get_config_dir(), "routing_state.json")
+        
+        while True:
+            if os.path.exists(routing_file):
+                try:
+                    req = urllib.request.Request("https://1.1.1.1/cdn-cgi/trace", headers={'User-Agent': 'Mozilla/5.0'})
+                    resp = urllib.request.urlopen(req, timeout=3).read().decode('utf-8')
+                    for line in resp.split('\n'):
+                        if line.startswith('ip='):
+                            real_ip = line.split('=')[1].strip()
+                            self.db.set_setting("current_real_ip", real_ip)
+                            break
+                except Exception:
+                    pass
+                time.sleep(1)
+            else:
+                self.db.set_setting("current_real_ip", "")
+                time.sleep(2)
+
     def start(self):
         print(f"[Daemon] Started background workers (PID: {os.getpid()})")
+        
+        import threading
+        ip_thread = threading.Thread(target=self._ip_checker_loop, daemon=True)
+        ip_thread.start()
+        
         while True:
             # Check servers
             if self._should_run("last_server_fetch", self.SERVER_FETCH_INTERVAL):

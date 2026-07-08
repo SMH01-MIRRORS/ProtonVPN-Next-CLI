@@ -195,6 +195,11 @@ def do_status():
 
     if vpn_running:
         print(f"[VPN]    State:   CONNECTED (Server IP: {vpn_ip})")
+        real_ip = db.get_setting("current_real_ip", "")
+        if real_ip:
+            print(f"[VPN]    Real IP: {real_ip}")
+        else:
+            print("[VPN]    Real IP: Fetching...")
     else:
         print("[VPN]    State:   DISCONNECTED")
         if os.path.exists(routing_file):
