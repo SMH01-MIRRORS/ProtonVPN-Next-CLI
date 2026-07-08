@@ -402,6 +402,11 @@ def do_set_awg(params: str):
     db.set_setting("active_awg_custom_params", params)
     print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} Custom AWG parameters set and activated.")
 
+def do_set_mtu(mtu_str: str):
+    db = Database()
+    db.set_setting("mtu", mtu_str)
+    print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} MTU set to: {mtu_str}")
+
 def do_awg_config(action: str, args):
     db = Database()
     if action == "create":
@@ -563,6 +568,10 @@ def do_connect(server_name: str, awg_str: str):
         "Address = 10.2.0.2/32",
         "DNS = 10.2.0.1"
     ]
+    
+    mtu = db.get_setting("mtu", "1280")
+    if mtu:
+        config_lines.append(f"MTU = {mtu}")
     
     for k, v in awg_params.items():
         config_lines.append(f"{k} = {v}")
@@ -1153,6 +1162,10 @@ def run_cli(args_list=None):
         formatter_class=argparse.RawDescriptionHelpFormatter)
     bypass_parser.add_argument("bypass", help="Bypass strategy (name or number)")
 
+    # set-mtu command
+    mtu_parser = subparsers.add_parser("set-mtu", help="Set MTU size for VPN interface (default: 1280 for Wi-Fi compatibility)")
+    mtu_parser.add_argument("mtu", help="MTU value (e.g. 1280, 1360, 1420)")
+
     # status command
     subparsers.add_parser("status", help="Show current login and server cache status")
     
@@ -1232,6 +1245,8 @@ def run_cli(args_list=None):
         do_list_servers()
     elif args.command == "set-awg":
         do_set_awg(args.params)
+    elif args.command == "set-mtu":
+        do_set_mtu(args.mtu)
     elif args.command == "awg-config":
         do_awg_config(args.action, args.config_args)
     elif args.command == "fetch-locale":
