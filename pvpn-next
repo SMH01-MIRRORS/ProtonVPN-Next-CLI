@@ -232,12 +232,10 @@ def do_status():
         else:
             print("[VPN]    Real IP: Fetching...")
     else:
-        print("[VPN]    State:   DISCONNECTED")
         if os.path.exists(routing_file):
-            try:
-                os.remove(routing_file)
-            except Exception:
-                pass
+            print("[VPN]    State:   CRASHED (Network may be broken. Run 'repair' or 'disconnect')")
+        else:
+            print("[VPN]    State:   DISCONNECTED")
         
     if daemon_running:
         print("[Daemon] State:   RUNNING")
@@ -601,6 +599,11 @@ def elevate_command_linux(cmd_args):
 def do_connect(server_name: str, awg_str: str):
     db = Database()
     vpn = ProtonVpnApi()
+    
+    routing_file = os.path.join(get_config_dir(), "routing_state.json")
+    if os.path.exists(routing_file):
+        print(f"{Colors.WARNING}-> Detecting previous crash state. Attempting auto-recovery before connecting...{Colors.ENDC}")
+        do_disconnect()
     
     server_json = vpn.get_server_by_name(server_name)
     if not server_json:
@@ -1288,6 +1291,9 @@ def run_cli(args_list=None):
     dns_parser.add_argument("action", choices=["list", "set", "add", "unset"], help="DNS action to perform")
     dns_parser.add_argument("dns_args", nargs=argparse.REMAINDER, help="DNS profile name and/or IP addresses")
 
+    # repair command
+    subparsers.add_parser("repair", help="Attempt to repair network routing after a crash or power outage")
+
     # status command
     subparsers.add_parser("status", help="Show current login and server cache status")
     
@@ -1386,6 +1392,9 @@ def run_cli(args_list=None):
     elif args.command == "status":
         do_status()
     elif args.command == "disconnect":
+        do_disconnect()
+    elif args.command == "repair":
+        print(f"{Colors.WARNING}-> Attempting to repair routing state...{Colors.ENDC}")
         do_disconnect()
     elif args.command == "awg-logs":
         do_awg_logs()
@@ -1491,6 +1500,24 @@ def main():
         print("========================================")
         print("        Welcome to VPN-Next CLI")
         print("========================================")
+        
+        routing_file = os.path.join(get_config_dir(), "routing_state.json")
+        if os.path.exists(routing_file):
+            engine_name = "pvpn-engine.exe" if platform.system() == "Windows" else "pvpn-engine"
+            vpn_running = False
+            try:
+                if platform.system() == "Windows":
+                    output = subprocess.check_output(f'tasklist /FI "IMAGENAME eq {engine_name}"', shell=True, text=True)
+                    vpn_running = engine_name.lower() in output.lower()
+                else:
+                    vpn_running = subprocess.run(["pgrep", "-f", engine_name], capture_output=True).returncode == 0
+            except:
+                pass
+                
+            if not vpn_running:
+                print(f"{Colors.WARNING}[WARNING] The VPN did not shut down cleanly (crash or power loss).{Colors.ENDC}")
+                print(f"{Colors.WARNING}          Your network might be broken. Run 'repair' or 'connect' to restore.{Colors.ENDC}\n")
+        
         print("Interactive shell mode activated.")
         print("For example, type 'list-servers' or 'autosetup'.")
         print("Type 'help' to see available commands, or 'exit' to quit.\n")
