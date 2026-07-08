@@ -2,7 +2,7 @@ import time
 import sys
 import os
 from .auth import ProtonAuthApi
-from .api import ProtonVpnApi
+from .vpn import ProtonVpnApi
 from .database import Database
 
 class BackgroundWorkers:
