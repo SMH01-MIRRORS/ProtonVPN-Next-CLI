@@ -253,14 +253,16 @@ class RoutingManager:
                 dns_lines = "\\n".join([f"nameserver {ip}" for ip in dns_list])
                 dns_ips_space = " ".join(dns_list)
                 dns_setup_script = f"""
-if [ ! -f /etc/resolv.conf.pvpn.bak ]; then
-    cp -a /etc/resolv.conf /etc/resolv.conf.pvpn.bak
-fi
-rm -f /etc/resolv.conf
-echo -e "{dns_lines}" > /etc/resolv.conf
 if command -v resolvectl >/dev/null 2>&1; then
+    resolvectl default-route {iface} false
     resolvectl dns {awg_iface} {dns_ips_space}
     resolvectl domain {awg_iface} ~\.
+else
+    if [ ! -f /etc/resolv.conf.pvpn.bak ]; then
+        cp -a /etc/resolv.conf /etc/resolv.conf.pvpn.bak
+    fi
+    rm -f /etc/resolv.conf
+    echo -e "{dns_lines}" > /etc/resolv.conf
 fi
 """
                 state["dns_backup"] = True
@@ -350,12 +352,13 @@ echo "-> VPN is running in the background. Use 'disconnect' to stop."
                 
             # --- DNS Restore ---
             if state.get("dns_backup", False):
-                restore_dns_script = """
+                restore_dns_script = f"""
 if [ -f /etc/resolv.conf.pvpn.bak ]; then
     rm -f /etc/resolv.conf
     mv /etc/resolv.conf.pvpn.bak /etc/resolv.conf
 fi
 if command -v resolvectl >/dev/null 2>&1; then
+    resolvectl default-route {iface} true || true
     resolvectl revert awg0 || true
 fi
 """
