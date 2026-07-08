@@ -31,8 +31,7 @@ class BackgroundWorkers:
     def sync_servers(self):
         try:
             print("[Daemon] Starting server sync...")
-            servers = self.api.get_logical_servers()
-            self.db.save_servers(servers)
+            servers = self.api.fetch_servers()
             self._mark_run("last_server_fetch")
             print(f"[Daemon] Successfully fetched {len(servers)} servers.")
         except Exception as e:
