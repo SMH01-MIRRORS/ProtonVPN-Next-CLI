@@ -67,6 +67,12 @@ class Database:
                     params TEXT
                 )
             """)
+            # Insert default undeletable AWG config
+            cursor.execute("""
+                INSERT OR IGNORE INTO awg_configs (name, params)
+                VALUES ('vpn-next-default', 'vpn-next-default')
+            """)
+            
             conn.commit()
 
     def set_setting(self, key: str, value: str):

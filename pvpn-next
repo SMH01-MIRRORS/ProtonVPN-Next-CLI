@@ -48,6 +48,38 @@ def get_config_dir() -> str:
     os.makedirs(d, exist_ok=True)
     return d
 
+def fix_config_permissions():
+    import platform
+    if platform.system() == "Windows":
+        return
+    if os.geteuid() != 0:
+        return
+    orig_user = os.environ.get("SUDO_USER") or os.environ.get("DOAS_USER")
+    if not orig_user or orig_user == "root":
+        return
+    try:
+        import pwd
+        pw = pwd.getpwnam(orig_user)
+        uid = pw.pw_uid
+        gid = pw.pw_gid
+    except Exception:
+        return
+        
+    config_dir = get_config_dir()
+    try:
+        os.chown(config_dir, uid, gid)
+        for root, dirs, files in os.walk(config_dir):
+            for d in dirs:
+                os.chown(os.path.join(root, d), uid, gid)
+            for f in files:
+                os.chown(os.path.join(root, f), uid, gid)
+    except Exception:
+        pass
+
+import atexit
+atexit.register(fix_config_permissions)
+
+
 from pvpn_cli.auth import ProtonAuthApi
 from pvpn_cli.vpn import ProtonVpnApi
 from pvpn_cli.database import Database
@@ -385,6 +417,13 @@ def do_awg_config(action: str, args):
             print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} Usage: awg-config delete <name_or_number>")
             sys.exit(1)
         identifier = " ".join(args)
+        
+        # Check if they are trying to delete the default config
+        cfg = db.get_awg_config(identifier)
+        if cfg and cfg['name'] == 'vpn-next-default':
+            print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} Cannot delete the built-in 'vpn-next-default' configuration.")
+            sys.exit(1)
+            
         if db.delete_awg_config(identifier):
             print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} AWG config deleted.")
             # If it was active, unset it
@@ -406,6 +445,9 @@ def do_awg_config(action: str, args):
             print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} Active AWG config set to: {Colors.OKCYAN}{cfg['name']}{Colors.ENDC}")
         else:
             print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} Config not found.")
+    elif action == "unset":
+        db.set_setting("active_awg_mode", "none")
+        print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} AWG configurations disabled. Connection will fallback to standard WireGuard.")
     elif action == "list":
         configs = db.get_awg_configs()
         if not configs:
@@ -427,7 +469,10 @@ def do_awg_config(action: str, args):
             
             # Highlight parts of parameters to make it beautiful
             params = cfg['params']
-            params_display = params.replace('Jc=', f'{Colors.OKCYAN}Jc={Colors.ENDC}').replace('Jmin=', f'{Colors.OKCYAN}Jmin={Colors.ENDC}')
+            if params == 'vpn-next-default':
+                params_display = f"{Colors.OKCYAN}Built-in Standard Profile (Jc=3, Jmin=1...){Colors.ENDC}"
+            else:
+                params_display = params.replace('Jc=', f'{Colors.OKCYAN}Jc={Colors.ENDC}').replace('Jmin=', f'{Colors.OKCYAN}Jmin={Colors.ENDC}')
             
             print(f"{cfg['id']:<4} | {Colors.BOLD}{name:<25}{Colors.ENDC} | {status:<19} | {params_display}")
         print("-" * 80)
@@ -644,6 +689,15 @@ def do_client_logs():
         print(f"No logs found at {log_path}")
         
     print("\n=== Daemon Logs ===")
+    daemon_path = os.path.join(get_config_dir(), "daemon.log")
+    if os.path.exists(daemon_path):
+        with open(daemon_path, "r") as f:
+            print(f.read())
+    else:
+        print(f"No daemon logs found at {daemon_path}")
+
+def do_daemon_logs():
+    print("=== Daemon Logs ===")
     daemon_path = os.path.join(get_config_dir(), "daemon.log")
     if os.path.exists(daemon_path):
         with open(daemon_path, "r") as f:
@@ -1029,7 +1083,10 @@ def ensure_daemon_running():
             pass
 
     if not is_running:
-        daemon_cmd = [sys.executable, os.path.realpath(sys.argv[0]), "_daemon"]
+        if getattr(sys, 'frozen', False):
+            daemon_cmd = [sys.executable, "_daemon"]
+        else:
+            daemon_cmd = [sys.executable, os.path.abspath(sys.argv[0]), "_daemon"]
         if platform.system() == "Windows":
             CREATE_NO_WINDOW = 0x08000000
             DETACHED_PROCESS = 0x00000008
@@ -1055,6 +1112,7 @@ def ensure_daemon_running():
             f.write(str(daemon_proc.pid))
 
 def run_cli(args_list=None):
+    fix_config_permissions()
     parser = argparse.ArgumentParser(description="PVPN Next CLI")
     parser.add_argument("--config-dir", type=str, help=argparse.SUPPRESS)
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -1086,7 +1144,7 @@ def run_cli(args_list=None):
 
     # awg-config command
     awg_config_parser = subparsers.add_parser("awg-config", help="Manage saved AmneziaWG configurations")
-    awg_config_parser.add_argument("action", choices=["list", "create", "delete", "set"], help="Action to perform")
+    awg_config_parser.add_argument("action", choices=["list", "create", "delete", "set", "unset"], help="Action to perform")
     awg_config_parser.add_argument("config_args", nargs=argparse.REMAINDER, help="Parameters and/or name (depends on action)")
 
     # set-bypass command
@@ -1106,6 +1164,9 @@ def run_cli(args_list=None):
     
     # client-logs command
     subparsers.add_parser("client-logs", help="View Client logs (Engine setup, Python CLI, Daemon errors)")
+    
+    # daemon-logs command
+    subparsers.add_parser("daemon-logs", help="View background update daemon logs")
     
     # exclude-lan command
     parser_exclude_lan = subparsers.add_parser("exclude-lan", help="Exclude Local Area Network (LAN) from VPN tunnel")
@@ -1191,6 +1252,8 @@ def run_cli(args_list=None):
         do_awg_logs()
     elif args.command == "client-logs":
         do_client_logs()
+    elif args.command == "daemon-logs":
+        do_daemon_logs()
     elif args.command == "exclude-lan":
         do_exclude_lan(args.state)
     elif args.command == "split-tunneling":
