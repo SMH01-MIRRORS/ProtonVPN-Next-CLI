@@ -1472,7 +1472,7 @@ def run_cli(args_list=None):
         ensure_daemon_running()
 
 def main():
-    if not sys.stdin.isatty() and sys.platform != "win32":
+    if not sys.stdin.isatty() and sys.platform != "win32" and "_daemon" not in sys.argv:
         import shutil
         terminals = [
             ("gnome-terminal", ["--"]),
