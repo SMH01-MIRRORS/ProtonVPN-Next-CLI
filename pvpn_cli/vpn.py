@@ -81,7 +81,7 @@ class ProtonVpnApi:
         }
         req = urllib.request.Request(url, headers=headers, method='GET')
         try:
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, timeout=3) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 return data.get("VPN", {}).get("MaxTier", 0)
         except Exception:

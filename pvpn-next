@@ -193,10 +193,40 @@ def do_status():
         except Exception:
             pass
 
+    daemon_pid = os.path.join(get_config_dir(), "daemon.pid")
+    daemon_running = False
+    if os.path.exists(daemon_pid):
+        try:
+            with open(daemon_pid, "r") as f:
+                pid = int(f.read().strip())
+            if platform.system() == "Windows":
+                import subprocess
+                output = subprocess.check_output(f'tasklist /FI "PID eq {pid}"', shell=True, text=True)
+                daemon_running = str(pid) in output
+            else:
+                os.kill(pid, 0)
+                daemon_running = True
+        except Exception:
+            pass
+
     if vpn_running:
         active_server = db.get_setting("active_server_name", "Unknown")
         print(f"[VPN]    State:   CONNECTED (Server: {active_server} | IP: {vpn_ip})")
         real_ip = db.get_setting("current_real_ip", "")
+        
+        if not real_ip and not daemon_running:
+            try:
+                import urllib.request
+                req = urllib.request.Request("https://1.1.1.1/cdn-cgi/trace", headers={'User-Agent': 'Mozilla/5.0'})
+                resp = urllib.request.urlopen(req, timeout=2).read().decode('utf-8')
+                for line in resp.split('\n'):
+                    if line.startswith('ip='):
+                        real_ip = line.split('=')[1].strip()
+                        db.set_setting("current_real_ip", real_ip)
+                        break
+            except Exception:
+                pass
+                
         if real_ip:
             print(f"[VPN]    Real IP: {real_ip}")
         else:
@@ -209,23 +239,6 @@ def do_status():
             except Exception:
                 pass
         
-    daemon_pid = os.path.join(get_config_dir(), "daemon.pid")
-    daemon_running = False
-    if os.path.exists(daemon_pid):
-        try:
-            with open(daemon_pid, "r") as f:
-                pid = int(f.read().strip())
-            if platform.system() == "Windows":
-                import subprocess
-                output = subprocess.check_output(f'tasklist /FI "PID eq {pid}"', shell=True, text=True)
-                daemon_running = str(pid) in output
-            else:
-
-                os.kill(pid, 0)
-                daemon_running = True
-        except Exception:
-            pass
-            
     if daemon_running:
         print("[Daemon] State:   RUNNING")
     else:
