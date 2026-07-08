@@ -72,44 +72,58 @@ class BackgroundWorkers:
         routing_file = os.path.join(get_config_dir(), "routing_state.json")
         
         while True:
-            if os.path.exists(routing_file):
-                current_ip = self.db.get_setting("current_real_ip", "")
-                if current_ip:
-                    time.sleep(5)
-                    continue
-                    
-                try:
-                    req = urllib.request.Request("https://1.1.1.1/cdn-cgi/trace", headers={'User-Agent': 'Mozilla/5.0'})
-                    resp = urllib.request.urlopen(req, timeout=3).read().decode('utf-8')
-                    for line in resp.split('\n'):
-                        if line.startswith('ip='):
-                            real_ip = line.split('=')[1].strip()
-                            self.db.set_setting("current_real_ip", real_ip)
-                            break
-                except Exception:
-                    pass
-                time.sleep(1)
-            else:
-                self.db.set_setting("current_real_ip", "")
+            try:
+                if os.path.exists(routing_file):
+                    current_ip = self.db.get_setting("current_real_ip", "")
+                    if current_ip:
+                        time.sleep(5)
+                        continue
+                        
+                    try:
+                        req = urllib.request.Request("https://1.1.1.1/cdn-cgi/trace", headers={'User-Agent': 'Mozilla/5.0'})
+                        resp = urllib.request.urlopen(req, timeout=3).read().decode('utf-8')
+                        for line in resp.split('\n'):
+                            if line.startswith('ip='):
+                                real_ip = line.split('=')[1].strip()
+                                self.db.set_setting("current_real_ip", real_ip)
+                                break
+                    except Exception:
+                        pass
+                    time.sleep(1)
+                else:
+                    self.db.set_setting("current_real_ip", "")
+                    time.sleep(2)
+            except Exception as e:
+                print(f"[Daemon] [ERROR] IP Checker exception: {e}")
                 time.sleep(2)
 
     def start(self):
         print(f"[Daemon] Started background workers (PID: {os.getpid()})")
+        
+        import sys
+        try:
+            sys.stdout.reconfigure(line_buffering=True)
+            sys.stderr.reconfigure(line_buffering=True)
+        except Exception:
+            pass
         
         import threading
         ip_thread = threading.Thread(target=self._ip_checker_loop, daemon=True)
         ip_thread.start()
         
         while True:
-            # Check servers
-            if self._should_run("last_server_fetch", self.SERVER_FETCH_INTERVAL):
-                self.sync_servers()
+            try:
+                # Check servers
+                if self._should_run("last_server_fetch", self.SERVER_FETCH_INTERVAL):
+                    self.sync_servers()
+                    
+                # Check session
+                if self._should_run("last_session_refresh", self.SESSION_REFRESH_INTERVAL):
+                    self.refresh_session()
+                    
+                # Check certificate (dynamically based on DB value)
+                self.check_certificate()
+            except Exception as e:
+                print(f"[Daemon] [ERROR] Unexpected exception in main loop: {e}")
                 
-            # Check session
-            if self._should_run("last_session_refresh", self.SESSION_REFRESH_INTERVAL):
-                self.refresh_session()
-                
-            # Check certificate (dynamically based on DB value)
-            self.check_certificate()
-            
             time.sleep(self.LOOP_DELAY)
