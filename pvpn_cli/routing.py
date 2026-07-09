@@ -199,7 +199,7 @@ class RoutingManager:
                         # 1. Route physical DNS into the tunnel to prevent SMHNR leaks statelessly
                         ps_cmd = 'powershell -NoProfile -Command "(Get-DnsClientServerAddress -AddressFamily IPv4).ServerAddresses | Select-Object -Unique"'
                         try:
-                            dns_out = subprocess.check_output(ps_cmd, shell=True, text=True).strip()
+                            dns_out = subprocess.check_output(ps_cmd, shell=True, text=True, creationflags=0x08000000).strip()
                             for line in dns_out.splitlines():
                                 physical_ip = line.strip()
                                 if physical_ip and physical_ip != "127.0.0.1":
