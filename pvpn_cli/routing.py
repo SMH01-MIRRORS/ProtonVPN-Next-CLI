@@ -157,10 +157,16 @@ class RoutingManager:
             client_log_path = log_path.replace("awg.log", "client.log")
             with open(log_path, "w") as log_file:
                 # Use subprocess to start engine in background without blocking Python script
-                kwargs = {"stdin": open(config_path, "r"), "stdout": log_file, "stderr": open(client_log_path, "w")}
+                kwargs = {"stdin": open(config_path, "r"), "stdout": log_file, "stderr": open(client_log_path, "w"), "close_fds": True}
                 if self.is_windows:
-                    # DETACHED_PROCESS (0x00000008) | CREATE_NEW_PROCESS_GROUP (0x00000200)
-                    kwargs["creationflags"] = 0x00000208
+                    # CREATE_NO_WINDOW (0x08000000) | DETACHED_PROCESS (0x00000008) | CREATE_NEW_PROCESS_GROUP (0x00000200)
+                    kwargs["creationflags"] = 0x08000208
+                    
+                    try:
+                        self._run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=pvpn-engine", "dir=in", "action=allow", f"program={engine_path}", "enable=yes"])
+                        self._run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=pvpn-engine", "dir=out", "action=allow", f"program={engine_path}", "enable=yes"])
+                    except:
+                        pass
                 
                 proc = subprocess.Popen([engine_path], **kwargs)
                 
