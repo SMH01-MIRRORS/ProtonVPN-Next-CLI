@@ -233,7 +233,7 @@ def do_status():
             print("[VPN]    Real IP: Fetching...")
     else:
         if os.path.exists(routing_file):
-            print("[VPN]    State:   CRASHED (Network may be broken. Run 'repair' or 'disconnect')")
+            print("[VPN]    State:   CRASHED (Or disconnected uncleanly)")
         else:
             print("[VPN]    State:   DISCONNECTED")
         
@@ -1291,9 +1291,6 @@ def run_cli(args_list=None):
     dns_parser.add_argument("action", choices=["list", "set", "add", "unset"], help="DNS action to perform")
     dns_parser.add_argument("dns_args", nargs=argparse.REMAINDER, help="DNS profile name and/or IP addresses")
 
-    # repair command
-    subparsers.add_parser("repair", help="Attempt to repair network routing after a crash or power outage")
-
     # status command
     subparsers.add_parser("status", help="Show current login and server cache status")
     
@@ -1392,9 +1389,6 @@ def run_cli(args_list=None):
     elif args.command == "status":
         do_status()
     elif args.command == "disconnect":
-        do_disconnect()
-    elif args.command == "repair":
-        print(f"{Colors.WARNING}-> Attempting to repair routing state...{Colors.ENDC}")
         do_disconnect()
     elif args.command == "awg-logs":
         do_awg_logs()
@@ -1515,8 +1509,11 @@ def main():
                 pass
                 
             if not vpn_running:
-                print(f"{Colors.WARNING}[WARNING] The VPN did not shut down cleanly (crash or power loss).{Colors.ENDC}")
-                print(f"{Colors.WARNING}          Your network might be broken. Run 'repair' or 'connect' to restore.{Colors.ENDC}\n")
+                # We just gracefully delete the state file because routing is already cleaned up by the OS
+                try:
+                    os.remove(routing_file)
+                except:
+                    pass
         
         print("Interactive shell mode activated.")
         print("For example, type 'list-servers' or 'autosetup'.")
