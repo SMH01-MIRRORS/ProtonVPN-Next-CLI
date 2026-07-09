@@ -187,7 +187,7 @@ func DisableFirewall() {
 	}
 }
 
-func BlockDNS(luid uint64) error {
+func BlockDNS(luid uint64, dnsAddrs []netip.Addr) error {
 	if wfpSession != 0 {
 		return errors.New("The firewall has already been enabled")
 	}
@@ -208,17 +208,17 @@ func BlockDNS(luid uint64) error {
 			return wrapErr(err)
 		}
 
-		err = permitLoopback(session, baseObjects, 14)
+		err = blockDNS(dnsAddrs, session, baseObjects, 14, 13)
 		if err != nil {
 			return wrapErr(err)
 		}
 
-		err = permitTunInterface(session, baseObjects, 14, luid)
+		err = permitLoopback(session, baseObjects, 12)
 		if err != nil {
 			return wrapErr(err)
 		}
 
-		err = blockDNS(nil, session, baseObjects, 13, 12)
+		err = permitTunInterface(session, baseObjects, 12, luid)
 		if err != nil {
 			return wrapErr(err)
 		}

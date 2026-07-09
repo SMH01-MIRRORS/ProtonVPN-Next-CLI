@@ -19,6 +19,7 @@ import (
 func main() {
 	ifaceName := flag.String("if", "awg0", "Interface name")
 	addr := flag.String("addr", "10.2.0.2/32", "Local IP address with CIDR")
+	dnsServers := flag.String("dns", "", "Comma-separated list of DNS servers to allow")
 	mtu := flag.Int("mtu", 1280, "Interface MTU")
 	flag.Parse()
 
@@ -69,7 +70,7 @@ func main() {
 
 	dev.Up()
 	fmt.Fprintf(os.Stderr, "[Engine] VPN Tunnel is UP and running.\n")
-	setupDNSFirewall(tdev)
+	setupDNSFirewall(tdev, *dnsServers)
 
 	// Wait for termination signal
 	sigChan := make(chan os.Signal, 1)

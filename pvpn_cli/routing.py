@@ -167,7 +167,7 @@ class RoutingManager:
                     except:
                         pass
                 
-                proc = subprocess.Popen([engine_path], **kwargs)
+                proc = subprocess.Popen([engine_path, "-dns", dns_ips], **kwargs)
                 
                 iface_idx = None
                 for _ in range(15):
@@ -201,7 +201,15 @@ class RoutingManager:
                     
                     if dns_list:
                         with open(client_log_path, "a") as f:
-                            f.write("\n--- DNS Setup (Windows NRPT) ---\n")
+                            f.write("\n--- DNS Debug Information ---\n")
+                            try:
+                                ps_dns_cmd = "Get-DnsClientServerAddress -AddressFamily IPv4 | Where-Object { $_.ServerAddresses -ne $null } | Select-Object InterfaceAlias, ServerAddresses | Out-String"
+                                dns_info = subprocess.run(["powershell", "-NoProfile", "-Command", ps_dns_cmd], capture_output=True, text=True, creationflags=0x08000000).stdout
+                                f.write(f"Physical DNS servers before VPN:\n{dns_info.strip()}\n")
+                            except Exception as e:
+                                pass
+                                
+                            f.write("\n--- DNS Setup (Windows) ---\n")
                             try:
                                 # Clean up any stale NRPT rules from old versions
                                 clean_cmd = "Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'PVPN-Next' } | Remove-DnsClientNrptRule -Force"
@@ -288,7 +296,7 @@ done
 """
                     
             script = f"""
-nohup {engine_path} < "{config_path}" > "{log_path}" 2> "{client_log_path}" &
+nohup {engine_path} -dns "{dns_ips}" < "{config_path}" > "{log_path}" 2> "{client_log_path}" &
 # Wait for interface
 for i in $(seq 1 30); do
     ip link show {awg_iface} >/dev/null 2>&1 && break

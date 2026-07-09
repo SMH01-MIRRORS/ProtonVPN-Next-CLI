@@ -30,6 +30,6 @@ func setupInterface(ifaceName string, addr string) error {
 	return nil
 }
 
-func setupDNSFirewall(tdev tun.Device) {
+func setupDNSFirewall(tdev tun.Device, dnsList string) {
 	// Not needed on Linux. Handled via standard routing table and cgroups.
 }

@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"os/exec"
 	"strings"
@@ -38,14 +39,28 @@ func setupInterface(ifaceName string, addr string) error {
 	return nil
 }
 
-func setupDNSFirewall(tdev tun.Device) {
+func setupDNSFirewall(tdev tun.Device, dnsList string) {
 	if nativeTun, ok := tdev.(*tun.NativeTun); ok {
 		luid := nativeTun.LUID()
 		fmt.Fprintf(os.Stderr, "[Engine] Enabling WFP Stateless DNS Block for TUN LUID %d...\n", luid)
-		if err := wfp.BlockDNS(luid); err != nil {
+		
+		var dnsAddrs []netip.Addr
+		if dnsList != "" {
+			for _, ipStr := range strings.Split(dnsList, ",") {
+				ipStr = strings.TrimSpace(ipStr)
+				if ipStr == "" {
+					continue
+				}
+				if addr, err := netip.ParseAddr(ipStr); err == nil {
+					dnsAddrs = append(dnsAddrs, addr)
+				}
+			}
+		}
+
+		if err := wfp.BlockDNS(luid, dnsAddrs); err != nil {
 			fmt.Fprintf(os.Stderr, "[Engine] [WARNING] Failed to enable WFP DNS block: %v\n", err)
 		} else {
-			fmt.Fprintf(os.Stderr, "[Engine] WFP Stateless DNS Block is ACTIVE.\n")
+			fmt.Fprintf(os.Stderr, "[Engine] WFP Stateless DNS Block is ACTIVE. Allowed DNS: %v\n", dnsAddrs)
 		}
 	} else {
 		fmt.Fprintf(os.Stderr, "[Engine] [WARNING] Device is not NativeTun, cannot enable WFP DNS block.\n")
