@@ -5,7 +5,7 @@ import json
 import urllib.request
 import platform
 import socket
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 def get_config_dir() -> str:
     if "PVPN_CONFIG_DIR" in os.environ:
