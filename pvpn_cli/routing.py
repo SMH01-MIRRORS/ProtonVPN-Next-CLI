@@ -81,16 +81,17 @@ class RoutingManager:
         except IndexError:
             return None, None
 
-    def _get_windows_default_gateway(self) -> Tuple[Optional[str], Optional[str]]:
+    def _get_windows_default_gateway(self) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         kwargs = {"capture_output": True, "text": True, "shell": True}
         if self.is_windows:
             kwargs["creationflags"] = 0x08000000
-        ps_cmd = "Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object RouteMetric | Select-Object -First 1 | ForEach-Object { $_.NextHop + ',' + $_.InterfaceIndex }"
+        ps_cmd = "Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object RouteMetric | Select-Object -First 1 | ForEach-Object { $ip = (Get-NetIPAddress -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4)[0].IPAddress; $_.NextHop + ',' + $_.InterfaceIndex + ',' + $ip }"
         output = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], **kwargs).stdout.strip()
         if "," in output:
             parts = output.split(",")
-            return parts[0].strip(), parts[1].strip()
-        return None, None
+            if len(parts) >= 3:
+                return parts[0].strip(), parts[1].strip(), parts[2].strip()
+        return None, None, None
 
     def _get_windows_iface_index(self, iface_name: str) -> Optional[str]:
         kwargs = {"capture_output": True, "text": True}
@@ -142,7 +143,7 @@ class RoutingManager:
         state = {"vpn_ip": vpn_ip, "gw": None, "iface": None, "os": sys.platform, "ips": exclude_ips, "exclude_lan": exclude_lan, "cgroup_created": False, "dns_list": dns_list}
         
         if self.is_windows:
-            gw, phys_idx = self._get_windows_default_gateway()
+            gw, phys_idx, phys_ip = self._get_windows_default_gateway()
             if not gw:
                 print("[ERROR] Could not detect default Windows gateway.")
                 sys.exit(1)
@@ -208,8 +209,8 @@ class RoutingManager:
                                 if physical_ip and physical_ip != "127.0.0.1" and physical_ip not in dns_list:
                                     # Statelessly blackhole physical DNS by routing it On-Link on the PHYSICAL adapter.
                                     # This prevents Strong Host Model SMHNR leaks, survives process crash, and cleans up on reboot.
-                                    if phys_idx:
-                                        self._run_cmd(["route", "ADD", physical_ip, "MASK", "255.255.255.255", "0.0.0.0", "IF", phys_idx])
+                                    if phys_idx and phys_ip:
+                                        self._run_cmd(["route", "ADD", physical_ip, "MASK", "255.255.255.255", phys_ip, "IF", phys_idx])
                         except:
                             pass
                         
