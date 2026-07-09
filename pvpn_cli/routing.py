@@ -190,6 +190,19 @@ class RoutingManager:
                     self._run_cmd(["route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", "0.0.0.0", "IF", iface_idx])
                     
                     if dns_list:
+                        # 1. Route physical DNS into the tunnel to prevent SMHNR leaks statelessly
+                        ps_cmd = 'powershell -NoProfile -Command "(Get-DnsClientServerAddress -AddressFamily IPv4).ServerAddresses | Select-Object -Unique"'
+                        try:
+                            dns_out = subprocess.check_output(ps_cmd, shell=True, text=True).strip()
+                            for line in dns_out.splitlines():
+                                physical_ip = line.strip()
+                                if physical_ip and physical_ip != "127.0.0.1":
+                                    # Route physical DNS to the Wintun adapter
+                                    self._run_cmd(["route", "ADD", physical_ip, "MASK", "255.255.255.255", "0.0.0.0", "IF", iface_idx])
+                        except:
+                            pass
+                        
+                        # 2. Assign custom DNS to Wintun
                         self._run_cmd(["netsh", "interface", "ipv4", "set", "dnsservers", f'name="{awg_iface}"', "static", dns_list[0], "primary"])
                         if len(dns_list) > 1:
                             for idx, dns_ip in enumerate(dns_list[1:], start=2):
@@ -232,16 +245,9 @@ class RoutingManager:
                 
             split_cmds_str = "\n".join(split_cmds)
             
-            # --- IPv6 Leak Blocking ---
-            ipv6_disabled = False
-            try:
-                out = subprocess.run(["sysctl", "-n", "net.ipv6.conf.all.disable_ipv6"], capture_output=True, text=True).stdout.strip()
-                if out == "1":
-                    ipv6_disabled = True
-            except:
-                pass
-                
-            state["ipv6_disabled_originally"] = ipv6_disabled
+            # --- Stateless IPv6 and DNS ---
+            # We don't save any state because routes attached to awg0 will automatically vanish when it dies.
+            state["ipv6_disabled_originally"] = False
             state["dns_backup"] = False
             
             with open(self.state_file, "w") as f:
@@ -250,24 +256,22 @@ class RoutingManager:
             
             dns_setup_script = ""
             if dns_list:
-                dns_lines = "\\n".join([f"nameserver {ip}" for ip in dns_list])
                 dns_ips_space = " ".join(dns_list)
                 dns_setup_script = f"""
 if command -v resolvectl >/dev/null 2>&1; then
-    resolvectl default-route {iface} false
     resolvectl dns {awg_iface} {dns_ips_space}
     resolvectl domain {awg_iface} ~\.
+    PHYSICAL_DNS=$(resolvectl status {iface} 2>/dev/null | grep 'DNS Servers' | awk '{{print $3, $4, $5}}')
 else
-    if [ ! -f /etc/resolv.conf.pvpn.bak ]; then
-        cp -a /etc/resolv.conf /etc/resolv.conf.pvpn.bak
-    fi
-    rm -f /etc/resolv.conf
-    echo -e "{dns_lines}" > /etc/resolv.conf
+    PHYSICAL_DNS=$(grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' /etc/resolv.conf 2>/dev/null)
 fi
+
+for ip in $PHYSICAL_DNS; do
+    if [[ "$ip" != 127.* ]]; then
+        ip route add $ip/32 dev {awg_iface} 2>/dev/null || true
+    fi
+done
 """
-                state["dns_backup"] = True
-                with open(self.state_file, "w") as f:
-                    json.dump(state, f)
                     
             script = f"""
 nohup {engine_path} < "{config_path}" > "{log_path}" 2> "{client_log_path}" &
@@ -276,8 +280,7 @@ for i in $(seq 1 30); do
     ip link show {awg_iface} >/dev/null 2>&1 && break
     sleep 0.5
 done
-sysctl -e -w net.ipv6.conf.all.disable_ipv6=1 2>/dev/null || true
-sysctl -e -w net.ipv6.conf.default.disable_ipv6=1 2>/dev/null || true
+ip -6 route add default dev {awg_iface} metric 1 2>/dev/null || true
 {dns_setup_script}
 ip route add {vpn_ip} via {gw} dev {iface}
 {split_cmds_str}
@@ -304,67 +307,47 @@ echo "-> VPN is running in the background. Use 'disconnect' to stop."
             return
             
         vpn_ip = state.get("vpn_ip")
-        gw = state.get("gw")
-        iface = state.get("iface")
-        ips = state.get("ips", [])
+        exclude_ips = state.get("ips", [])
         exclude_lan = state.get("exclude_lan", False)
-        cgroup_created = state.get("cgroup_created", False)
         
         if not vpn_ip:
             return
             
         print("-> Tearing down VPN routing...")
         
-        if state.get("os") == "win32":
-            self._run_cmd(["route", "DELETE", vpn_ip, "MASK", "255.255.255.255", gw])
-            for ip in ips:
-                self._run_cmd(["route", "DELETE", ip, "MASK", "255.255.255.255", gw])
-            if exclude_lan:
-                self._run_cmd(["route", "DELETE", "10.0.0.0", "MASK", "255.0.0.0"])
-                self._run_cmd(["route", "DELETE", "172.16.0.0", "MASK", "255.240.0.0"])
-                self._run_cmd(["route", "DELETE", "192.168.0.0", "MASK", "255.255.0.0"])
-            self._run_cmd(["route", "DELETE", "0.0.0.0", "MASK", "128.0.0.0"])
-            self._run_cmd(["route", "DELETE", "128.0.0.0", "MASK", "128.0.0.0"])
-        else:
-            if gw and iface:
-                subprocess.run(self._elevate(["ip", "route", "del", vpn_ip, "via", gw, "dev", iface]), capture_output=True)
-                for ip in ips:
-                    subprocess.run(self._elevate(["ip", "route", "del", ip, "via", gw, "dev", iface]), capture_output=True)
-                if exclude_lan:
-                    subprocess.run(self._elevate(["ip", "route", "del", "10.0.0.0/8", "via", gw, "dev", iface]), capture_output=True)
-                    subprocess.run(self._elevate(["ip", "route", "del", "172.16.0.0/12", "via", gw, "dev", iface]), capture_output=True)
-                    subprocess.run(self._elevate(["ip", "route", "del", "192.168.0.0/16", "via", gw, "dev", iface]), capture_output=True)
-                    
-            if cgroup_created:
-                subprocess.run(self._elevate(["iptables", "-t", "mangle", "-D", "OUTPUT", "-m", "cgroup", "--path", "protonvpn_exclude", "-j", "MARK", "--set-mark", "51820"]), capture_output=True)
-                subprocess.run(self._elevate(["ip", "rule", "del", "fwmark", "51820", "table", "200"]), capture_output=True)
-                # Note: cgroup directory might not be deleted if processes are still in it, but that's fine.
-                subprocess.run(self._elevate(["rmdir", "/sys/fs/cgroup/protonvpn_exclude"]), capture_output=True)
-                
-            subprocess.run(self._elevate(["ip", "route", "del", "0.0.0.0/1"]), capture_output=True)
-            subprocess.run(self._elevate(["ip", "route", "del", "128.0.0.0/1"]), capture_output=True)
-            
-            # --- IPv6 Leak Blocking Restore ---
-            ipv6_disabled_originally = state.get("ipv6_disabled_originally", False)
-            if not ipv6_disabled_originally:
-                subprocess.run(self._elevate(["sh", "-c", "sysctl -e -w net.ipv6.conf.all.disable_ipv6=0 2>/dev/null || true"]), capture_output=True)
-                subprocess.run(self._elevate(["sh", "-c", "sysctl -e -w net.ipv6.conf.default.disable_ipv6=0 2>/dev/null || true"]), capture_output=True)
-                
-            # --- DNS Restore ---
-            if state.get("dns_backup", False):
-                restore_dns_script = f"""
-if [ -f /etc/resolv.conf.pvpn.bak ]; then
-    rm -f /etc/resolv.conf
-    mv /etc/resolv.conf.pvpn.bak /etc/resolv.conf
-fi
-if command -v resolvectl >/dev/null 2>&1; then
-    resolvectl default-route {iface} true || true
-    resolvectl revert awg0 || true
-fi
-"""
-                subprocess.run(self._elevate(["sh", "-c", restore_dns_script]), capture_output=True)
-            
         try:
-            os.remove(self.state_file)
+            if state.get("os") == "win32":
+                gw = state.get("gw")
+                self._run_cmd(["route", "DELETE", vpn_ip, "MASK", "255.255.255.255", gw])
+                for ip in exclude_ips:
+                    self._run_cmd(["route", "DELETE", ip, "MASK", "255.255.255.255", gw])
+                if exclude_lan:
+                    self._run_cmd(["route", "DELETE", "10.0.0.0", "MASK", "255.0.0.0"])
+                    self._run_cmd(["route", "DELETE", "172.16.0.0", "MASK", "255.240.0.0"])
+                    self._run_cmd(["route", "DELETE", "192.168.0.0", "MASK", "255.255.0.0"])
+                self._run_cmd(["route", "DELETE", "0.0.0.0", "MASK", "128.0.0.0"])
+                self._run_cmd(["route", "DELETE", "128.0.0.0", "MASK", "128.0.0.0"])
+            else:
+                gw = state.get("gw")
+                iface = state.get("iface")
+                if gw and iface:
+                    subprocess.run(self._elevate(["ip", "route", "del", vpn_ip, "via", gw, "dev", iface]), capture_output=True)
+                    for ip in exclude_ips:
+                        subprocess.run(self._elevate(["ip", "route", "del", ip, "via", gw, "dev", iface]), capture_output=True)
+                    if exclude_lan:
+                        subprocess.run(self._elevate(["ip", "route", "del", "10.0.0.0/8", "via", gw, "dev", iface]), capture_output=True)
+                        subprocess.run(self._elevate(["ip", "route", "del", "172.16.0.0/12", "via", gw, "dev", iface]), capture_output=True)
+                        subprocess.run(self._elevate(["ip", "route", "del", "192.168.0.0/16", "via", gw, "dev", iface]), capture_output=True)
+                        
+                if state.get("cgroup_created"):
+                    subprocess.run(self._elevate(["iptables", "-t", "mangle", "-D", "OUTPUT", "-m", "cgroup", "--path", "protonvpn_exclude", "-j", "MARK", "--set-mark", "51820"]), capture_output=True)
+                    subprocess.run(self._elevate(["ip", "rule", "del", "fwmark", "51820", "table", "200"]), capture_output=True)
+                    subprocess.run(self._elevate(["rmdir", "/sys/fs/cgroup/protonvpn_exclude"]), capture_output=True)
+                
+                subprocess.run(self._elevate(["ip", "route", "del", "0.0.0.0/1"]), capture_output=True)
+                subprocess.run(self._elevate(["ip", "route", "del", "128.0.0.0/1"]), capture_output=True)
+            
+            if os.path.exists(self.state_file):
+                os.remove(self.state_file)
         except:
             pass
