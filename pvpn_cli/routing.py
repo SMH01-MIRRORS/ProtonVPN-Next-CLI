@@ -195,6 +195,11 @@ class RoutingManager:
                     self._run_cmd(["route", "ADD", "0.0.0.0", "MASK", "128.0.0.0", "0.0.0.0", "IF", iface_idx])
                     self._run_cmd(["route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", "0.0.0.0", "IF", iface_idx])
                     
+                    try:
+                        self._run_cmd(["netsh", "interface", "ipv6", "add", "route", "::/0", awg_iface, "metric=1"])
+                    except:
+                        pass
+                    
                     if dns_list:
                         # 1. Route physical DNS into the tunnel to prevent SMHNR leaks statelessly
                         ps_cmd = 'powershell -NoProfile -Command "(Get-DnsClientServerAddress -AddressFamily IPv4).ServerAddresses | Select-Object -Unique"'
@@ -202,9 +207,9 @@ class RoutingManager:
                             dns_out = subprocess.check_output(ps_cmd, shell=True, text=True, creationflags=0x08000000).strip()
                             for line in dns_out.splitlines():
                                 physical_ip = line.strip()
-                                if physical_ip and physical_ip != "127.0.0.1":
-                                    # Route physical DNS to the Wintun adapter
-                                    self._run_cmd(["route", "ADD", physical_ip, "MASK", "255.255.255.255", "0.0.0.0", "IF", iface_idx])
+                                if physical_ip and physical_ip != "127.0.0.1" and physical_ip not in dns_list:
+                                    # Statelessly blackhole physical DNS by assigning it as a local IP to the Wintun adapter
+                                    self._run_cmd(["netsh", "interface", "ipv4", "add", "address", awg_iface, physical_ip, "255.255.255.255"])
                         except:
                             pass
                         
