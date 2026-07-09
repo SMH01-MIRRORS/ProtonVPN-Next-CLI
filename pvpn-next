@@ -759,6 +759,12 @@ def do_connect(server_name: str, awg_str: str):
         
     try:
         rm.start_vpn(vpn_ip=entry_ip, engine_path=engine_path, config_path=config_path, log_path=log_path, dns_ips=dns_ips)
+        if is_windows:
+            try:
+                from pvpn_cli.watchdog import Watchdog
+                Watchdog().install()
+            except Exception as e:
+                print(f"[WARNING] Failed to install watchdog: {e}")
     except KeyboardInterrupt:
         print("\nCancelled.")
         sys.exit(0)
@@ -830,6 +836,24 @@ def do_daemon_logs():
             print(f.read())
     else:
         print(f"No daemon logs found at {daemon_path}")
+
+def do_service_logs():
+    print("=== Watchdog Service Logs ===")
+    service_path = os.path.join(get_config_dir(), "service.log")
+    if os.path.exists(service_path):
+        with open(service_path, "r") as f:
+            print(f.read())
+    else:
+        print(f"No service logs found at {service_path}")
+
+def do_service_logs():
+    print("=== Watchdog Service Logs ===")
+    service_path = os.path.join(get_config_dir(), "service.log")
+    if os.path.exists(service_path):
+        with open(service_path, "r") as f:
+            print(f.read())
+    else:
+        print(f"No service logs found at {service_path}")
 
 def get_split_tunnel_config():
     import json
@@ -1306,6 +1330,9 @@ def run_cli(args_list=None):
     # daemon-logs command
     subparsers.add_parser("daemon-logs", help="View background update daemon logs")
     
+    # service logs command
+    subparsers.add_parser("service-logs", help="Show the Watchdog Microservice logs (Windows)")
+    
     # exclude-lan command
     parser_exclude_lan = subparsers.add_parser("exclude-lan", help="Exclude Local Area Network (LAN) from VPN tunnel")
     parser_exclude_lan.add_argument("state", choices=["on", "off"], help="State (on/off)")
@@ -1324,6 +1351,8 @@ def run_cli(args_list=None):
     
     # daemon (hidden internal command)
     parser_daemon = subparsers.add_parser("_daemon", help=argparse.SUPPRESS)
+    parser_watchdog = subparsers.add_parser("_watchdog", help=argparse.SUPPRESS)
+    subparsers.add_parser("service-logs", help="Show Watchdog logs")
     
     # update-session command
     subparsers.add_parser("update-session", help="Manually refresh API session tokens")
@@ -1396,6 +1425,13 @@ def run_cli(args_list=None):
         do_client_logs()
     elif args.command == "daemon-logs":
         do_daemon_logs()
+    elif args.command == "service-logs":
+        do_service_logs()
+    elif args.command == "_watchdog":
+        from pvpn_cli.watchdog import Watchdog
+        Watchdog().run()
+    elif args.command == "service-logs":
+        do_service_logs()
     elif args.command == "exclude-lan":
         do_exclude_lan(args.state)
     elif args.command == "split-tunneling":
