@@ -200,25 +200,36 @@ class RoutingManager:
                         pass
                     
                     if dns_list:
-                        # 1. Route physical DNS into the tunnel to prevent SMHNR leaks statelessly
-                        ps_cmd = 'powershell -NoProfile -Command "(Get-DnsClientServerAddress -AddressFamily IPv4).ServerAddresses | Select-Object -Unique"'
-                        try:
-                            dns_out = subprocess.check_output(ps_cmd, shell=True, text=True, creationflags=0x08000000).strip()
-                            for line in dns_out.splitlines():
-                                physical_ip = line.strip()
-                                if physical_ip and physical_ip != "127.0.0.1" and physical_ip not in dns_list:
-                                    # Statelessly blackhole physical DNS by routing it On-Link on the PHYSICAL adapter.
-                                    # This prevents Strong Host Model SMHNR leaks, survives process crash, and cleans up on reboot.
-                                    if phys_idx and phys_ip:
-                                        self._run_cmd(["route", "ADD", physical_ip, "MASK", "255.255.255.255", phys_ip, "IF", phys_idx])
-                        except:
-                            pass
-                        
-                        # 2. Assign custom DNS to Wintun
-                        self._run_cmd(["netsh", "interface", "ipv4", "set", "dnsservers", f'name="{awg_iface}"', "static", dns_list[0], "primary"])
-                        if len(dns_list) > 1:
-                            for idx, dns_ip in enumerate(dns_list[1:], start=2):
-                                self._run_cmd(["netsh", "interface", "ipv4", "add", "dnsservers", f'name="{awg_iface}"', dns_ip, f"index={idx}"])
+                        with open(client_log_path, "a") as f:
+                            f.write("\n--- DNS Setup (Windows NRPT) ---\n")
+                            try:
+                                # Clean up any stale NRPT rules first
+                                clean_cmd = "Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'PVPN-Next' } | Remove-DnsClientNrptRule -Force"
+                                subprocess.run(["powershell", "-NoProfile", "-Command", clean_cmd], creationflags=0x08000000)
+                                f.write("Cleared stale NRPT rules.\n")
+                                
+                                # 1. Create an NRPT rule to force ALL DNS queries into the VPN tunnel
+                                # This is the ONLY 100% reliable way to stop Windows SMHNR leaks without a WFP driver.
+                                nrpt_cmd = f"Add-DnsClientNrptRule -Namespace '.' -NameServers '{dns_list[0]}' -Comment 'PVPN-Next'"
+                                result = subprocess.run(["powershell", "-NoProfile", "-Command", nrpt_cmd], capture_output=True, text=True, creationflags=0x08000000)
+                                if result.returncode == 0:
+                                    f.write(f"NRPT rule added successfully for {dns_list[0]}.\n")
+                                else:
+                                    f.write(f"Failed to add NRPT rule: {result.stderr}\n")
+                            except Exception as e:
+                                f.write(f"Exception during NRPT setup: {e}\n")
+                                
+                            try:
+                                # 2. Assign custom DNS to Wintun as a fallback
+                                self._run_cmd(["netsh", "interface", "ipv4", "set", "dnsservers", f'name="{awg_iface}"', "static", dns_list[0], "primary"])
+                                f.write("Set Wintun primary DNS.\n")
+                                if len(dns_list) > 1:
+                                    for idx, dns_ip in enumerate(dns_list[1:], start=2):
+                                        self._run_cmd(["netsh", "interface", "ipv4", "add", "dnsservers", f'name="{awg_iface}"', dns_ip, f"index={idx}"])
+                                        f.write(f"Added secondary DNS: {dns_ip}\n")
+                            except Exception as e:
+                                f.write(f"Exception during Wintun DNS assignment: {e}\n")
+                            f.write("--- End DNS Setup ---\n")
                 else:
                     self._run_cmd(["route", "ADD", "0.0.0.0", "MASK", "128.0.0.0", awg_ip])
                     self._run_cmd(["route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", awg_ip])
@@ -339,6 +350,10 @@ echo "-> VPN is running in the background. Use 'disconnect' to stop."
                     self._run_cmd(["route", "DELETE", "192.168.0.0", "MASK", "255.255.0.0"])
                 self._run_cmd(["route", "DELETE", "0.0.0.0", "MASK", "128.0.0.0"])
                 self._run_cmd(["route", "DELETE", "128.0.0.0", "MASK", "128.0.0.0"])
+                
+                # Cleanup NRPT rule
+                clean_cmd = "Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'PVPN-Next' } | Remove-DnsClientNrptRule -Force"
+                subprocess.run(["powershell", "-NoProfile", "-Command", clean_cmd], creationflags=0x08000000)
             else:
                 gw = state.get("gw")
                 iface = state.get("iface")

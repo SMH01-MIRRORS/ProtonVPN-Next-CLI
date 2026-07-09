@@ -1490,6 +1490,14 @@ def main():
                 subprocess.Popen([term] + args + [sys.executable] + sys.argv[1:])
                 sys.exit(0)
                 
+    if sys.platform == "win32":
+        try:
+            # Clean up stale NRPT rules from previous crashes/power loss so internet is not permanently broken
+            clean_cmd = "Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'PVPN-Next' } | Remove-DnsClientNrptRule -ErrorAction SilentlyContinue -Force"
+            subprocess.run(["powershell", "-NoProfile", "-Command", clean_cmd], creationflags=0x08000000, capture_output=True)
+        except:
+            pass
+
     if len(sys.argv) == 1:
         print("========================================")
         print("        Welcome to VPN-Next CLI")
