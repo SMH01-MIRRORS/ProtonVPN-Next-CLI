@@ -69,6 +69,7 @@ func main() {
 
 	dev.Up()
 	fmt.Fprintf(os.Stderr, "[Engine] VPN Tunnel is UP and running.\n")
+	setupDNSFirewall(tdev)
 
 	// Wait for termination signal
 	sigChan := make(chan os.Signal, 1)

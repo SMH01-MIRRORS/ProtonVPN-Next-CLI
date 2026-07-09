@@ -203,24 +203,15 @@ class RoutingManager:
                         with open(client_log_path, "a") as f:
                             f.write("\n--- DNS Setup (Windows NRPT) ---\n")
                             try:
-                                # Clean up any stale NRPT rules first
+                                # Clean up any stale NRPT rules from old versions
                                 clean_cmd = "Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'PVPN-Next' } | Remove-DnsClientNrptRule -Force"
                                 subprocess.run(["powershell", "-NoProfile", "-Command", clean_cmd], creationflags=0x08000000)
-                                f.write("Cleared stale NRPT rules.\n")
-                                
-                                # 1. Create an NRPT rule to force ALL DNS queries into the VPN tunnel
-                                # This is the ONLY 100% reliable way to stop Windows SMHNR leaks without a WFP driver.
-                                nrpt_cmd = f"Add-DnsClientNrptRule -Namespace '.' -NameServers '{dns_list[0]}' -Comment 'PVPN-Next'"
-                                result = subprocess.run(["powershell", "-NoProfile", "-Command", nrpt_cmd], capture_output=True, text=True, creationflags=0x08000000)
-                                if result.returncode == 0:
-                                    f.write(f"NRPT rule added successfully for {dns_list[0]}.\n")
-                                else:
-                                    f.write(f"Failed to add NRPT rule: {result.stderr}\n")
+                                f.write("Cleared any stale NRPT rules.\n")
                             except Exception as e:
-                                f.write(f"Exception during NRPT setup: {e}\n")
+                                pass
                                 
                             try:
-                                # 2. Assign custom DNS to Wintun as a fallback
+                                # Assign custom DNS to Wintun
                                 self._run_cmd(["netsh", "interface", "ipv4", "set", "dnsservers", f'name="{awg_iface}"', "static", dns_list[0], "primary"])
                                 f.write("Set Wintun primary DNS.\n")
                                 if len(dns_list) > 1:
@@ -351,7 +342,7 @@ echo "-> VPN is running in the background. Use 'disconnect' to stop."
                 self._run_cmd(["route", "DELETE", "0.0.0.0", "MASK", "128.0.0.0"])
                 self._run_cmd(["route", "DELETE", "128.0.0.0", "MASK", "128.0.0.0"])
                 
-                # Cleanup NRPT rule
+                # Cleanup any stale NRPT rule just in case
                 clean_cmd = "Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'PVPN-Next' } | Remove-DnsClientNrptRule -Force"
                 subprocess.run(["powershell", "-NoProfile", "-Command", clean_cmd], creationflags=0x08000000)
             else:

@@ -4,8 +4,13 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+
+	"pvpn-engine/wfp"
+
+	"github.com/amnezia-vpn/amneziawg-go/tun"
 )
 
 func setupInterface(ifaceName string, addr string) error {
@@ -32,3 +37,18 @@ func setupInterface(ifaceName string, addr string) error {
 	// This is typically optional but good practice if we want to enforce MTU.
 	return nil
 }
+
+func setupDNSFirewall(tdev tun.Device) {
+	if nativeTun, ok := tdev.(*tun.NativeTun); ok {
+		luid := nativeTun.LUID()
+		fmt.Fprintf(os.Stderr, "[Engine] Enabling WFP Stateless DNS Block for TUN LUID %d...\n", luid)
+		if err := wfp.BlockDNS(luid); err != nil {
+			fmt.Fprintf(os.Stderr, "[Engine] [WARNING] Failed to enable WFP DNS block: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "[Engine] WFP Stateless DNS Block is ACTIVE.\n")
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "[Engine] [WARNING] Device is not NativeTun, cannot enable WFP DNS block.\n")
+	}
+}
+

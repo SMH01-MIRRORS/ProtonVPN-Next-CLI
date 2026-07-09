@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"github.com/vishvananda/netlink"
+	"github.com/amnezia-vpn/amneziawg-go/tun"
 )
 
 func setupInterface(ifaceName string, addr string) error {
@@ -27,4 +28,8 @@ func setupInterface(ifaceName string, addr string) error {
 	}
 
 	return nil
+}
+
+func setupDNSFirewall(tdev tun.Device) {
+	// Not needed on Linux. Handled via standard routing table and cgroups.
 }
