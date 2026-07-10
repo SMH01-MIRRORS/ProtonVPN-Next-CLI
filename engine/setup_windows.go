@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"pvpn-engine/wfp"
 
@@ -28,6 +29,7 @@ func setupInterface(ifaceName string, addr string) error {
 	cmd := exec.Command("netsh", "interface", "ipv4", "set", "address",
 		fmt.Sprintf("name=%s", ifaceName),
 		"static", ip, mask)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 		
 	output, err := cmd.CombinedOutput()
 	if err != nil {

@@ -1242,14 +1242,13 @@ def ensure_daemon_running():
             daemon_cmd = [sys.executable, os.path.abspath(sys.argv[0]), "_daemon"]
         if platform.system() == "Windows":
             CREATE_NO_WINDOW = 0x08000000
-            DETACHED_PROCESS = 0x00000008
             daemon_proc = subprocess.Popen(
                 daemon_cmd, 
                 stdin=subprocess.DEVNULL,
                 stdout=daemon_log_file, 
                 stderr=daemon_log_file, 
                 close_fds=True,
-                creationflags=CREATE_NO_WINDOW | DETACHED_PROCESS
+                creationflags=CREATE_NO_WINDOW
             )
         else:
             daemon_proc = subprocess.Popen(

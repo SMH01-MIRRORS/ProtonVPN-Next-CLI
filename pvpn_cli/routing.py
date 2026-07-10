@@ -154,12 +154,27 @@ class RoutingManager:
             
             # Windows execution (assumes running as Admin)
             client_log_path = log_path.replace("awg.log", "client.log")
+            
+            # Write DNS debug info BEFORE starting the engine to avoid file lock issues
+            with open(client_log_path, "w") as f:
+                f.write("--- VPN Startup ---\n")
+                if dns_list:
+                    f.write("\n--- DNS Debug Information ---\n")
+                    try:
+                        ps_dns_cmd = "Get-DnsClientServerAddress -AddressFamily IPv4 | Where-Object { $_.ServerAddresses -ne $null } | Select-Object InterfaceAlias, ServerAddresses | Out-String"
+                        dns_info = subprocess.run(["powershell", "-NoProfile", "-Command", ps_dns_cmd], capture_output=True, text=True, creationflags=0x08000000).stdout
+                        f.write(f"Physical DNS servers before VPN:\n{dns_info.strip()}\n")
+                    except Exception as e:
+                        pass
+                    f.write("\n--- DNS Setup (Windows) ---\n")
+
             with open(log_path, "w") as log_file:
+                client_log_fd = open(client_log_path, "a")
                 # Use subprocess to start engine in background without blocking Python script
-                kwargs = {"stdin": open(config_path, "r"), "stdout": log_file, "stderr": open(client_log_path, "w"), "close_fds": True}
+                kwargs = {"stdin": open(config_path, "r"), "stdout": log_file, "stderr": client_log_fd, "close_fds": True}
                 if self.is_windows:
-                    # CREATE_NO_WINDOW (0x08000000) | DETACHED_PROCESS (0x00000008) | CREATE_NEW_PROCESS_GROUP (0x00000200)
-                    kwargs["creationflags"] = 0x08000208
+                    # CREATE_NO_WINDOW (0x08000000) | CREATE_NEW_PROCESS_GROUP (0x00000200)
+                    kwargs["creationflags"] = 0x08000200
                     
                     try:
                         self._run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=pvpn-engine", "dir=in", "action=allow", f"program={engine_path}", "enable=yes"])
@@ -201,15 +216,6 @@ class RoutingManager:
                     
                     if dns_list:
                         with open(client_log_path, "a") as f:
-                            f.write("\n--- DNS Debug Information ---\n")
-                            try:
-                                ps_dns_cmd = "Get-DnsClientServerAddress -AddressFamily IPv4 | Where-Object { $_.ServerAddresses -ne $null } | Select-Object InterfaceAlias, ServerAddresses | Out-String"
-                                dns_info = subprocess.run(["powershell", "-NoProfile", "-Command", ps_dns_cmd], capture_output=True, text=True, creationflags=0x08000000).stdout
-                                f.write(f"Physical DNS servers before VPN:\n{dns_info.strip()}\n")
-                            except Exception as e:
-                                pass
-                                
-                            f.write("\n--- DNS Setup (Windows) ---\n")
                             try:
                                 # Clean up any stale NRPT rules from old versions
                                 clean_cmd = "Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'PVPN-Next' } | Remove-DnsClientNrptRule -Force"
