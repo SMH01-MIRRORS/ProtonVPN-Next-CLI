@@ -56,11 +56,13 @@ class BackgroundWorkers:
         if cert_refresh_at > 0 and time.time() > cert_refresh_at:
             print("[Daemon] Certificate refresh threshold reached. Registering new certificate...")
             try:
-                # To generate a new key we use wireguard logic
-                # Since we don't have awg.py directly accessible without importing
-                from .awg import create_wg_keys
-                priv, pub = create_wg_keys()
-                self.api.register_cert(pub, priv)
+                from .crypto import ProtonCrypto
+                priv_key, pub_key_pem = ProtonCrypto.generate_vpn_keys()
+                response = self.api.register_cert(pub_key_pem)
+                cert_data = response.get('Certificate', '')
+                expires_at = response.get('ExpirationTime', 0)
+                refresh_at = response.get('RefreshTime', 0)
+                self.db.update_certificate(priv_key, cert_data, expires_at, refresh_at)
                 print("[Daemon] Successfully registered new certificate.")
             except Exception as e:
                 print(f"[Daemon] [ERROR] Certificate update failed with error: {e}")
