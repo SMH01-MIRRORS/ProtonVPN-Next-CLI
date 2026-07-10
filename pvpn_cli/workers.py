@@ -46,15 +46,15 @@ class BackgroundWorkers:
         except Exception as e:
             print(f"[Daemon] [ERROR] Session update failed with error: {e}")
 
-    def check_certificate(self):
+    def check_certificate(self, force=False):
         session = self.db.get_session()
         if not session:
             return
             
         cert_refresh_at = session.get("cert_refresh_at") or 0
         
-        if cert_refresh_at > 0 and time.time() > cert_refresh_at:
-            print("[Daemon] Certificate refresh threshold reached. Registering new certificate...")
+        if force or (cert_refresh_at > 0 and time.time() > cert_refresh_at):
+            print("[Daemon] Certificate refresh threshold reached (or forced). Registering new certificate...")
             try:
                 from .crypto import ProtonCrypto
                 priv_key, pub_key_pem = ProtonCrypto.generate_vpn_keys()

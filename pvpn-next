@@ -1117,6 +1117,15 @@ def do_manage_daemon(action: str):
         print("-> Background daemon is now ENABLED.")
         # It will be auto-started by ensure_daemon_running at the end of the command
 
+    elif action == "test":
+        print("=== Running Daemon Test ===")
+        from pvpn_cli.workers import BackgroundWorkers
+        worker = BackgroundWorkers()
+        worker.sync_servers()
+        worker.refresh_session()
+        worker.check_certificate(force=True)
+        print("=== Daemon Test Complete ===")
+
 def do_grant_privileges():
     import shutil
     if platform.system() != "Linux":
@@ -1382,7 +1391,7 @@ def run_cli(args_list=None):
     
     # daemon management command
     parser_manage = subparsers.add_parser("daemon", help="Manage background update daemon")
-    parser_manage.add_argument("action", choices=["start", "stop", "on", "off"], help="Action")
+    parser_manage.add_argument("action", choices=["start", "stop", "on", "off", "test"], help="Action")
     
     # version command
     subparsers.add_parser("version", help="Show CLI version")
