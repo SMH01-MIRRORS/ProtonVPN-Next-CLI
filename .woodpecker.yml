@@ -49,7 +49,7 @@ steps:
     image: woodpeckerci/plugin-release
     when:
       event: tag
-      evaluate: 'CI_COMMIT_TAG ~= "^[0-9]+\\.[0-9]+\\.[0-9]+$"'
+      evaluate: 'CI_COMMIT_TAG matches "^[0-9]+\\.[0-9]+\\.[0-9]+$"'
     settings:
       api_key:
         from_secret: CODEBERG_TOKEN
@@ -64,7 +64,7 @@ steps:
     image: woodpeckerci/plugin-release
     when:
       event: tag
-      evaluate: 'not (CI_COMMIT_TAG ~= "^[0-9]+\\.[0-9]+\\.[0-9]+$")'
+      evaluate: 'not (CI_COMMIT_TAG matches "^[0-9]+\\.[0-9]+\\.[0-9]+$")'
     settings:
       api_key:
         from_secret: CODEBERG_TOKEN
