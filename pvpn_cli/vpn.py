@@ -113,7 +113,7 @@ class ProtonVpnApi:
         except urllib.error.URLError as e:
             raise Exception(f"Network error: {e.reason}")
 
-    def register_cert(self, public_key: str) -> Dict[str, Any]:
+    def register_cert(self, public_key: str, mode: str = None) -> Dict[str, Any]:
         session = self.db.get_session()
         if not session or not session.get("access_token"):
             raise Exception("No active session. Please run 'guest' login first.")
@@ -131,6 +131,9 @@ class ProtonVpnApi:
         }
         
         payload = {"ClientPublicKey": public_key}
+        if mode:
+            payload["Mode"] = mode
+            
         data = json.dumps(payload).encode('utf-8')
         
         req = urllib.request.Request(url, data=data, headers=headers, method='POST')
