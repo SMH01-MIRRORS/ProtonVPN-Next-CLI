@@ -53,13 +53,7 @@ def get_commit_summary():
                 for line in lines:
                     if '|' in line:
                         commit_author, subject = line.split('|', 1)
-                        # Woodpecker author might be 'Name <email>', git %an is 'Name'
-                        # Or they might match exactly. We check if author contains commit_author or vice-versa.
-                        if commit_author in author or author in commit_author:
-                            relevant_messages.append(subject)
-                        else:
-                            # Stop if we hit a commit by a different author
-                            break
+                        relevant_messages.append(f"{commit_author}: {subject}")
 
                 if len(relevant_messages) > 1:
                     # Reverse to chronological order: oldest to newest
