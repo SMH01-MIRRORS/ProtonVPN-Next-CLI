@@ -93,8 +93,15 @@ def elevate_if_needed_windows(cmd_args=None):
         
         args_to_use = cmd_args if cmd_args is not None else sys.argv[1:]
         config_arg = f"--config-dir={get_config_dir()}"
-        args_to_use = [config_arg] + args_to_use
         
+        import tempfile
+        import uuid
+        import time
+        log_id = str(uuid.uuid4())
+        log_file = os.path.join(tempfile.gettempdir(), f"pvpn_elevate_{log_id}.log")
+        open(log_file, "w").close()
+        
+        args_to_use = [config_arg, f"--redirect-logs={log_file}"] + args_to_use
         params = ' '.join([f'"{arg}"' for arg in args_to_use])
         
         if getattr(sys, 'frozen', False):
@@ -105,7 +112,24 @@ def elevate_if_needed_windows(cmd_args=None):
         if ret <= 32:
             print("[ERROR] Failed to elevate privileges. (UAC prompt denied or error)")
             sys.exit(1)
-        # If successful, the elevated process will take over. We just exit this one.
+            
+        try:
+            with open(log_file, "r") as f:
+                while True:
+                    line = f.readline()
+                    if not line:
+                        time.sleep(0.1)
+                        continue
+                    if line.strip() == "===EOF===":
+                        break
+                    print(line, end="")
+        except KeyboardInterrupt:
+            pass
+        finally:
+            try:
+                os.remove(log_file)
+            except:
+                pass
         sys.exit(0)
 
 def do_guest_login():
@@ -1267,6 +1291,7 @@ def run_cli(args_list=None):
     fix_config_permissions()
     parser = argparse.ArgumentParser(description="PVPN Next CLI")
     parser.add_argument("--config-dir", type=str, help=argparse.SUPPRESS)
+    parser.add_argument("--redirect-logs", type=str, help=argparse.SUPPRESS)
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
     # guest command
@@ -1379,6 +1404,28 @@ def run_cli(args_list=None):
     parser_autosetup.add_argument("--no-proxy", action="store_true", help="Auto-select Direct connection (No proxy)")
     
     args = parser.parse_args(args_list)
+    
+    if hasattr(args, 'redirect_logs') and args.redirect_logs:
+        class LogWriter:
+            def __init__(self, filename):
+                self.filename = filename
+            def write(self, msg):
+                try:
+                    with open(self.filename, "a", encoding="utf-8") as f:
+                        f.write(msg)
+                except Exception:
+                    pass
+            def flush(self):
+                pass
+        sys.stdout = LogWriter(args.redirect_logs)
+        sys.stderr = sys.stdout
+        def write_eof():
+            try:
+                with open(args.redirect_logs, "a", encoding="utf-8") as f:
+                    f.write("\n===EOF===\n")
+            except Exception:
+                pass
+        atexit.register(write_eof)
     
     if hasattr(args, 'config_dir') and args.config_dir:
         os.environ["PVPN_CONFIG_DIR"] = args.config_dir
@@ -1507,6 +1554,14 @@ def run_cli(args_list=None):
         ensure_daemon_running()
 
 def main():
+    if sys.platform == "win32":
+        hide_window = any(arg == "_watchdog" or arg == "_daemon" or arg.startswith("--redirect-logs") for arg in sys.argv)
+        if hide_window:
+            import ctypes
+            hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 0)
+                
     if not sys.stdin.isatty() and sys.platform != "win32" and "_daemon" not in sys.argv:
         import shutil
         terminals = [
