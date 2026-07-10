@@ -50,7 +50,7 @@ class RoutingManager:
 
     def _run_cmd(self, cmd: list) -> str:
         try:
-            kwargs = {"check": True, "capture_output": True, "text": True}
+            kwargs = {"check": True, "capture_output": True, "text": True, "errors": "ignore"}
             if self.is_windows:
                 kwargs["creationflags"] = 0x08000000
             result = subprocess.run(cmd, **kwargs)
@@ -82,7 +82,7 @@ class RoutingManager:
             return None, None
 
     def _get_windows_default_gateway(self) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-        kwargs = {"capture_output": True, "text": True, "shell": True}
+        kwargs = {"capture_output": True, "text": True, "shell": True, "errors": "ignore"}
         if self.is_windows:
             kwargs["creationflags"] = 0x08000000
         ps_cmd = "Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object RouteMetric | Select-Object -First 1 | ForEach-Object { $ip = (Get-NetIPAddress -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4)[0].IPAddress; $_.NextHop + ',' + $_.InterfaceIndex + ',' + $ip }"
@@ -94,15 +94,19 @@ class RoutingManager:
         return None, None, None
 
     def _get_windows_iface_index(self, iface_name: str) -> Optional[str]:
-        kwargs = {"capture_output": True, "text": True}
+        kwargs = {"capture_output": True, "text": True, "errors": "ignore"}
         if self.is_windows:
             kwargs["creationflags"] = 0x08000000
-        output = subprocess.run(["netsh", "interface", "ipv4", "show", "interfaces"], **kwargs).stdout
-        for line in output.split('\n'):
-            if iface_name in line:
-                parts = line.split()
-                if len(parts) >= 1:
-                    return parts[0]
+        try:
+            output = subprocess.run(["netsh", "interface", "ipv4", "show", "interfaces"], **kwargs).stdout
+            if output:
+                for line in output.split('\n'):
+                    if iface_name in line:
+                        parts = line.split()
+                        if len(parts) >= 1:
+                            return parts[0]
+        except Exception as e:
+            print(f"[WARNING] _get_windows_iface_index failed: {e}")
         return None
 
     def _get_split_config(self):
@@ -162,8 +166,9 @@ class RoutingManager:
                     f.write("\n--- DNS Debug Information ---\n")
                     try:
                         ps_dns_cmd = "Get-DnsClientServerAddress -AddressFamily IPv4 | Where-Object { $_.ServerAddresses -ne $null } | Select-Object InterfaceAlias, ServerAddresses | Out-String"
-                        dns_info = subprocess.run(["powershell", "-NoProfile", "-Command", ps_dns_cmd], capture_output=True, text=True, creationflags=0x08000000).stdout
-                        f.write(f"Physical DNS servers before VPN:\n{dns_info.strip()}\n")
+                        dns_info = subprocess.run(["powershell", "-NoProfile", "-Command", ps_dns_cmd], capture_output=True, text=True, errors="ignore", creationflags=0x08000000).stdout
+                        if dns_info:
+                            f.write(f"Physical DNS servers before VPN:\n{dns_info.strip()}\n")
                     except Exception as e:
                         pass
                     f.write("\n--- DNS Setup (Windows) ---\n")
