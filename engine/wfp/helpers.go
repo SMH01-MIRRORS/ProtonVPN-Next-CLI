@@ -71,62 +71,6 @@ func wrapErr(err error) error {
 	return fmt.Errorf("Firewall error at %s:%d: %w", file, line, err)
 }
 
-func getCurrentProcessSecurityDescriptor() (*windows.SECURITY_DESCRIPTOR, error) {
-	var processToken windows.Token
-	err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &processToken)
-	if err != nil {
-		return nil, wrapErr(err)
-	}
-	defer processToken.Close()
-	gs, err := processToken.GetTokenGroups()
-	if err != nil {
-		return nil, wrapErr(err)
-	}
-	var sid *windows.SID
-	for _, g := range gs.AllGroups() {
-		if g.Attributes != windows.SE_GROUP_ENABLED|windows.SE_GROUP_ENABLED_BY_DEFAULT|windows.SE_GROUP_OWNER {
-			continue
-		}
-		// We could be checking != 6, but hopefully Microsoft will update
-		// RtlCreateServiceSid to use SHA2, which will then likely bump
-		// this up. So instead just roll with a minimum.
-		if !g.Sid.IsValid() || g.Sid.IdentifierAuthority() != windows.SECURITY_NT_AUTHORITY || g.Sid.SubAuthorityCount() < 6 || g.Sid.SubAuthority(0) != 80 {
-			continue
-		}
-		sid = g.Sid
-		break
-	}
-	if sid == nil {
-		return nil, wrapErr(windows.ERROR_NO_SUCH_GROUP)
-	}
-
-	access := []windows.EXPLICIT_ACCESS{{
-		AccessPermissions: cFWP_ACTRL_MATCH_FILTER,
-		AccessMode:        windows.GRANT_ACCESS,
-		Trustee: windows.TRUSTEE{
-			TrusteeForm:  windows.TRUSTEE_IS_SID,
-			TrusteeType:  windows.TRUSTEE_IS_GROUP,
-			TrusteeValue: windows.TrusteeValueFromSID(sid),
-		},
-	}}
-	dacl, err := windows.ACLFromEntries(access, nil)
-	if err != nil {
-		return nil, wrapErr(err)
-	}
-	sd, err := windows.NewSecurityDescriptor()
-	if err != nil {
-		return nil, wrapErr(err)
-	}
-	err = sd.SetDACL(dacl, true, false)
-	if err != nil {
-		return nil, wrapErr(err)
-	}
-	sd, err = sd.ToSelfRelative()
-	if err != nil {
-		return nil, wrapErr(err)
-	}
-	return sd, nil
-}
 
 func getCurrentProcessAppID() (*wtFwpByteBlob, error) {
 	currentFile, err := os.Executable()

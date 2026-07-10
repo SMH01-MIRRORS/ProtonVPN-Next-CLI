@@ -1,11 +1,12 @@
 # Stage 1: Build the Go engine for Windows
 FROM golang:alpine AS engine-builder
+ARG NPROCS=1
 WORKDIR /src
 # Copy engine source
 COPY engine/ /src/engine/
 WORKDIR /src/engine
 RUN apk add --no-cache git
-RUN GOOS=windows GOARCH=amd64 go build -o pvpn-engine.exe helper.go setup_windows.go
+RUN GOOS=windows GOARCH=amd64 go build -p ${NPROCS} -ldflags="-s -w" -trimpath -o pvpn-engine.exe helper.go setup_windows.go
 
 # Stage 2: Package the Python CLI with PyInstaller using PyWine
 FROM tobix/pywine:3.11 AS pyinstaller-builder
