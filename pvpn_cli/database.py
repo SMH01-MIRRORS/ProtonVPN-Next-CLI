@@ -47,10 +47,17 @@ class Database:
                     country TEXT,
                     city TEXT,
                     tier INTEGER,
+                    load INTEGER DEFAULT 0,
                     raw_json TEXT
                 )
             """)
-            
+
+            # Check if load column exists (for migration)
+            try:
+                cursor.execute("ALTER TABLE servers ADD COLUMN load INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+
             # Settings table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS settings (
@@ -176,11 +183,12 @@ class Database:
             cursor = conn.cursor()
             for srv in servers_list:
                 cursor.execute("""
-                    INSERT INTO servers (id, name, country, city, tier, raw_json)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO servers (id, name, country, city, tier, load, raw_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         name=excluded.name,
                         tier=excluded.tier,
+                        load=excluded.load,
                         raw_json=excluded.raw_json
                 """, (
                     str(srv.get("ID", srv.get("Name", "unknown"))),
@@ -188,6 +196,7 @@ class Database:
                     srv.get("EntryCountry"),
                     srv.get("City"),
                     srv.get("Tier", 0),
+                    srv.get("Load", 0),
                     json.dumps(srv)
                 ))
             # Delete stale servers
@@ -196,6 +205,20 @@ class Database:
                 placeholders = ','.join('?' * len(existing_ids))
                 cursor.execute(f"DELETE FROM servers WHERE id NOT IN ({placeholders})", existing_ids)
             conn.commit()
+
+    def update_server_loads(self, loads_list: List[Dict[str, Any]]):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            updated_count = 0
+            for item in loads_list:
+                server_id = str(item.get("ID") or item.get("id"))
+                load = item.get("Load") or item.get("load") or 0
+
+                cursor.execute("UPDATE servers SET load = ? WHERE id = ?", (load, server_id))
+                if cursor.rowcount > 0:
+                    updated_count += 1
+            conn.commit()
+            print(f"[Database] Updated load for {updated_count} servers.", flush=True)
 
     def update_localized_cities(self, cities_map: Dict[str, Dict[str, str]]):
         with sqlite3.connect(self.db_path) as conn:

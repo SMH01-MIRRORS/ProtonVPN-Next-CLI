@@ -56,6 +56,34 @@ class ProtonVpnApi:
         except urllib.error.URLError as e:
             raise Exception(f"Network error: {e.reason}")
 
+    def fetch_loads(self) -> List[Dict[str, Any]]:
+        session = self.db.get_session()
+        if not session or not session.get("access_token"):
+            raise Exception("No active session.")
+
+        url = f"{self.BASE_URL}/vpn/v1/loads"
+        headers = {
+            "Authorization": f"Bearer {session['access_token']}",
+            "x-pm-uid": session['uid'],
+            "User-Agent": self.device_info.get_spoofed_user_agent(),
+            "x-pm-appversion": f"android-vpn@{DeviceInfoProvider.SPOOFED_APP_VERSION}-dev+play",
+            "x-pm-apiversion": "4",
+            "Accept": "application/vnd.protonmail.v1+json",
+        }
+
+        req = urllib.request.Request(url, headers=headers, method='GET')
+        try:
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                if data.get("Code") != 1000:
+                    raise Exception(f"Failed to fetch loads. Code: {data.get('Code')}")
+
+                loads = data.get("LogicalServers", [])
+                self.db.update_server_loads(loads)
+                return loads
+        except Exception as e:
+            raise Exception(f"Failed to fetch loads: {e}")
+
     def get_server_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         with sqlite3.connect(self.db.db_path) as conn:
             cursor = conn.cursor()

@@ -13,6 +13,7 @@ class BackgroundWorkers:
         
         # In seconds
         self.SERVER_FETCH_INTERVAL = 120 * 60  # 2 hours
+        self.LOAD_FETCH_INTERVAL = 15 * 60    # 15 minutes
         self.SESSION_REFRESH_INTERVAL = 12 * 60 * 60  # 12 hours
         self.LOOP_DELAY = 60  # Check every minute
 
@@ -36,6 +37,15 @@ class BackgroundWorkers:
             print(f"[Daemon] Successfully fetched {len(servers)} servers.")
         except Exception as e:
             print(f"[Daemon] [ERROR] Server sync failed with error: {e}")
+
+    def sync_loads(self):
+        try:
+            print("[Daemon] Starting load sync...")
+            loads = self.api.fetch_loads()
+            self._mark_run("last_load_fetch")
+            print(f"[Daemon] Successfully updated loads for {len(loads)} servers.")
+        except Exception as e:
+            print(f"[Daemon] [ERROR] Load sync failed: {e}")
 
     def refresh_session(self):
         try:
@@ -118,6 +128,10 @@ class BackgroundWorkers:
                 if self._should_run("last_server_fetch", self.SERVER_FETCH_INTERVAL):
                     self.sync_servers()
                     
+                # Check loads
+                if self._should_run("last_load_fetch", self.LOAD_FETCH_INTERVAL):
+                    self.sync_loads()
+
                 # Check session
                 if self._should_run("last_session_refresh", self.SESSION_REFRESH_INTERVAL):
                     self.refresh_session()

@@ -31,7 +31,6 @@ def get_status():
     max_tier = 0
     if logged_in:
         try:
-            # We cache max_tier in database to avoid frequent network calls
             max_tier_str = db.get_setting("max_tier", "0")
             if max_tier_str == "0":
                 api = ProtonVpnApi()
@@ -42,12 +41,21 @@ def get_status():
         except Exception:
             max_tier = 0
 
+    # Collect more status info for the "Status" screen in settings
+    routing_file = os.path.join(db.db_path.replace("protonvpn.db", "routing_state.json"))
+    vpn_active = os.path.exists(routing_file)
+
     status = {
         "logged_in": logged_in,
         "bypass": db.get_setting("api_bypass", "0"),
         "active_server": db.get_setting("active_server_name", ""),
         "real_ip": db.get_setting("current_real_ip", ""),
-        "max_tier": max_tier
+        "max_tier": max_tier,
+        "uid": session.get("uid", "N/A") if logged_in else "N/A",
+        "vpn_state": "CONNECTED" if vpn_active else "DISCONNECTED",
+        "server_count": db.get_server_count(),
+        "last_refresh": db.get_setting("last_server_fetch", "Never"),
+        "locale": (locale.getdefaultlocale()[0] or "en_US") if hasattr(locale, 'getdefaultlocale') else "en_US"
     }
     return jsonify(status)
 
@@ -134,6 +142,7 @@ def fetch_servers():
     api = ProtonVpnApi()
     data = request.json or {}
     loc = data.get("locale")
+    print(f"-> Fetching full server list (Locale: {loc})...", flush=True)
     try:
         servers = api.fetch_servers()
         if loc:
@@ -142,11 +151,31 @@ def fetch_servers():
                 if city_names and city_names.get("Code") == 1000:
                     db = Database()
                     db.update_localized_cities(city_names.get("Cities", {}))
+                    print(f"-> Localized city names updated for: {loc}", flush=True)
             except Exception as le:
-                print(f"[WARNING] Failed to fetch localized city names: {le}")
-        return jsonify({"success": True, "count": len(servers)})
+                print(f"[WARNING] Failed to fetch localized city names: {le}", flush=True)
+
+        msg = f"[SUCCESS] Fetched {len(servers)} servers."
+        print(msg, flush=True)
+        return jsonify({"success": True, "count": len(servers), "message": msg})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        err_msg = f"[ERROR] Failed to fetch servers: {str(e)}"
+        print(err_msg, flush=True)
+        return jsonify({"success": False, "error": str(e), "message": err_msg}), 400
+
+@app.route("/api/servers/loads", methods=["POST"])
+def fetch_loads():
+    print("-> Updating server loads from Proton API...", flush=True)
+    api = ProtonVpnApi()
+    try:
+        loads = api.fetch_loads()
+        msg = f"[SUCCESS] Updated loads for {len(loads)} servers."
+        print(msg, flush=True)
+        return jsonify({"success": True, "count": len(loads), "message": msg})
+    except Exception as e:
+        err_msg = f"[ERROR] Failed to fetch loads: {str(e)}"
+        print(err_msg, flush=True)
+        return jsonify({"success": False, "error": str(e), "message": err_msg}), 400
 
 @app.route("/api/servers", methods=["GET"])
 def get_servers():

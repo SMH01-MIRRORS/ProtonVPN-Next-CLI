@@ -182,6 +182,16 @@ def do_fetch_servers():
         print(f"\n[ERROR] {str(e)}")
         sys.exit(1)
 
+def do_fetch_loads():
+    print("Updating server loads from Proton API...")
+    api = ProtonVpnApi()
+    try:
+        loads = api.fetch_loads()
+        print(f"\n[SUCCESS] Updated loads for {len(loads)} servers.")
+    except Exception as e:
+        print(f"\n[ERROR] {str(e)}")
+        sys.exit(1)
+
 def do_status():
     db = Database()
     session = db.get_session()
@@ -1346,7 +1356,10 @@ def run_cli(args_list=None):
     
     # fetch-servers command
     subparsers.add_parser("fetch-servers", help="Fetch and cache VPN servers list")
-    
+
+    # fetch-loads command
+    subparsers.add_parser("fetch-loads", help="Update cached server loads")
+
     # list-servers command
     subparsers.add_parser("list-servers", help="List cached VPN servers as a tree")
 
@@ -1492,6 +1505,8 @@ def run_cli(args_list=None):
         do_login()
     elif args.command == "fetch-servers":
         do_fetch_servers()
+    elif args.command == "fetch-loads":
+        do_fetch_loads()
     elif args.command == "list-servers":
         do_list_servers()
     elif args.command == "set-awg":
