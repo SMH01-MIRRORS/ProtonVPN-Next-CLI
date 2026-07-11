@@ -2,3 +2,5 @@ cryptography
 babel
 bcrypt
 psutil
+flask
+flask-cors
