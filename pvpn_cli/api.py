@@ -2,6 +2,7 @@ import os
 import sys
 import locale
 import threading
+import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pvpn_cli.database import Database
@@ -25,11 +26,28 @@ login_state = {
 def get_status():
     db = Database()
     session = db.get_session()
+    logged_in = session is not None and "access_token" in session
+
+    max_tier = 0
+    if logged_in:
+        try:
+            # We cache max_tier in database to avoid frequent network calls
+            max_tier_str = db.get_setting("max_tier", "0")
+            if max_tier_str == "0":
+                api = ProtonVpnApi()
+                max_tier = api.get_max_tier()
+                db.set_setting("max_tier", str(max_tier))
+            else:
+                max_tier = int(max_tier_str)
+        except Exception:
+            max_tier = 0
+
     status = {
-        "logged_in": session is not None and "access_token" in session,
+        "logged_in": logged_in,
         "bypass": db.get_setting("api_bypass", "0"),
         "active_server": db.get_setting("active_server_name", ""),
-        "real_ip": db.get_setting("current_real_ip", "")
+        "real_ip": db.get_setting("current_real_ip", ""),
+        "max_tier": max_tier
     }
     return jsonify(status)
 
@@ -114,8 +132,18 @@ def submit_2fa():
 @app.route("/api/servers/fetch", methods=["POST"])
 def fetch_servers():
     api = ProtonVpnApi()
+    data = request.json or {}
+    loc = data.get("locale")
     try:
         servers = api.fetch_servers()
+        if loc:
+            try:
+                city_names = api.fetch_locale(loc)
+                if city_names and city_names.get("Code") == 1000:
+                    db = Database()
+                    db.update_localized_cities(city_names.get("Cities", {}))
+            except Exception as le:
+                print(f"[WARNING] Failed to fetch localized city names: {le}")
         return jsonify({"success": True, "count": len(servers)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
@@ -198,6 +226,30 @@ def update_settings():
         if key in ["protocol", "obfuscation_enabled", "obfuscation_config", "split_tunneling", "custom_dns", "kill_switch", "auto_connect", "spoof_country", "allow_lan", "vpn_port"]:
             db.set_setting(key, str(value).lower() if isinstance(value, bool) else str(value))
     return jsonify({"success": True})
+
+@app.route("/api/settings/split", methods=["GET"])
+def get_split_settings():
+    from pvpn_cli.routing import get_config_dir
+    config_path = os.path.join(get_config_dir(), "split_tunnel.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                return jsonify(json.load(f))
+        except:
+            pass
+    return jsonify({"exclude_lan": False, "split_items": []})
+
+@app.route("/api/settings/split", methods=["POST"])
+def update_split_settings():
+    from pvpn_cli.routing import get_config_dir
+    data = request.json or {}
+    config_path = os.path.join(get_config_dir(), "split_tunnel.json")
+    try:
+        with open(config_path, "w") as f:
+            json.dump(data, f)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
 
 @app.route("/api/awg", methods=["GET"])
 def get_awg_configs():
