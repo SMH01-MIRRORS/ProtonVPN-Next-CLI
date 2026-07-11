@@ -243,7 +243,8 @@ def get_settings():
         "auto_connect": db.get_setting("auto_connect", "false"),
         "spoof_country": db.get_setting("spoof_country", "false"),
         "allow_lan": db.get_setting("allow_lan", "false"),
-        "vpn_port": db.get_setting("vpn_port", "0")
+        "vpn_port": db.get_setting("vpn_port", "0"),
+        "gui_theme": db.get_setting("gui_theme", "system")
     }
     return jsonify({"success": True, "settings": settings})
 
@@ -253,7 +254,7 @@ def update_settings():
     data = request.json or {}
     messages = []
     for key, value in data.items():
-        if key in ["protocol", "obfuscation_enabled", "obfuscation_config", "split_tunneling", "custom_dns", "kill_switch", "auto_connect", "spoof_country", "allow_lan", "vpn_port"]:
+        if key in ["protocol", "obfuscation_enabled", "obfuscation_config", "split_tunneling", "custom_dns", "kill_switch", "auto_connect", "spoof_country", "allow_lan", "vpn_port", "gui_theme"]:
             db.set_setting(key, str(value).lower() if isinstance(value, bool) else str(value))
 
             # Mimic CLI logging style
@@ -262,6 +263,10 @@ def update_settings():
                 msg = f"-> DNS Configuration updated to: {value or 'Default'}"
             elif key == "protocol":
                 msg = f"-> VPN Protocol set to: {value.upper()}"
+            elif key == "vpn_port":
+                msg = f"-> VPN Port set to: {value if value != '0' else 'Auto'}"
+            elif key == "gui_theme":
+                msg = f"-> GUI Theme saved to database: {value}"
 
             print(msg, flush=True)
             messages.append(msg)
