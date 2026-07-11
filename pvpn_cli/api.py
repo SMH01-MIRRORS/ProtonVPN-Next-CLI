@@ -179,7 +179,14 @@ def get_settings():
     settings = {
         "protocol": db.get_setting("protocol", "wireguard"),
         "obfuscation_enabled": db.get_setting("obfuscation_enabled", "false"),
-        "obfuscation_config": db.get_setting("obfuscation_config", "vpn-next-default")
+        "obfuscation_config": db.get_setting("obfuscation_config", "vpn-next-default"),
+        "split_tunneling": db.get_setting("split_tunneling", "false"),
+        "custom_dns": db.get_setting("custom_dns", ""),
+        "kill_switch": db.get_setting("kill_switch", "false"),
+        "auto_connect": db.get_setting("auto_connect", "false"),
+        "spoof_country": db.get_setting("spoof_country", "false"),
+        "allow_lan": db.get_setting("allow_lan", "false"),
+        "vpn_port": db.get_setting("vpn_port", "0")
     }
     return jsonify({"success": True, "settings": settings})
 
@@ -188,8 +195,8 @@ def update_settings():
     db = Database()
     data = request.json or {}
     for key, value in data.items():
-        if key in ["protocol", "obfuscation_enabled", "obfuscation_config"]:
-            db.set_setting(key, str(value).lower())
+        if key in ["protocol", "obfuscation_enabled", "obfuscation_config", "split_tunneling", "custom_dns", "kill_switch", "auto_connect", "spoof_country", "allow_lan", "vpn_port"]:
+            db.set_setting(key, str(value).lower() if isinstance(value, bool) else str(value))
     return jsonify({"success": True})
 
 @app.route("/api/awg", methods=["GET"])
