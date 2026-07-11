@@ -222,10 +222,22 @@ def get_settings():
 def update_settings():
     db = Database()
     data = request.json or {}
+    messages = []
     for key, value in data.items():
         if key in ["protocol", "obfuscation_enabled", "obfuscation_config", "split_tunneling", "custom_dns", "kill_switch", "auto_connect", "spoof_country", "allow_lan", "vpn_port"]:
             db.set_setting(key, str(value).lower() if isinstance(value, bool) else str(value))
-    return jsonify({"success": True})
+
+            # Mimic CLI logging style
+            msg = f"-> Setting changed: {key} = {value}"
+            if key == "custom_dns":
+                msg = f"-> DNS Configuration updated to: {value or 'Default'}"
+            elif key == "protocol":
+                msg = f"-> VPN Protocol set to: {value.upper()}"
+
+            print(msg, flush=True)
+            messages.append(msg)
+
+    return jsonify({"success": True, "messages": messages})
 
 @app.route("/api/settings/split", methods=["GET"])
 def get_split_settings():
@@ -247,7 +259,9 @@ def update_split_settings():
     try:
         with open(config_path, "w") as f:
             json.dump(data, f)
-        return jsonify({"success": True})
+        msg = f"-> Split Tunneling configuration updated ({len(data.get('split_items', []))} items)"
+        print(msg, flush=True)
+        return jsonify({"success": True, "message": msg})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
@@ -279,10 +293,14 @@ def vpn_connect():
         # Import and call the same do_connect used by CLI
         import subprocess, sys
         cli_path = sys.executable if not getattr(sys, 'frozen', False) else sys.argv[0]
-        # Run as background so the API call returns immediately
+
+        print(f"-> GUI Connection request: {server}", flush=True)
+
+        # Run as background but INHERIT stdout/stderr so we see logs in terminal
         subprocess.Popen([cli_path, "connect", server],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return jsonify({"success": True})
+                         stdout=None, stderr=None)
+
+        return jsonify({"success": True, "message": f"Connection to {server} initiated."})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
@@ -292,16 +310,23 @@ def vpn_disconnect():
     try:
         import subprocess, sys
         cli_path = sys.executable if not getattr(sys, 'frozen', False) else sys.argv[0]
+
+        print(f"-> GUI Disconnect request", flush=True)
+
         subprocess.Popen([cli_path, "disconnect"],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return jsonify({"success": True})
+                         stdout=None, stderr=None)
+
+        return jsonify({"success": True, "message": "Disconnection initiated."})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
-def run_api_server(port=34115):
+def run_api_server(port=34115, debug=False):
     import logging
     log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR)
+    if debug:
+        log.setLevel(logging.INFO)
+    else:
+        log.setLevel(logging.ERROR)
 
-    print(f"Starting API Daemon on port {port}...")
+    print(f"Starting API Daemon on port {port} (Debug: {debug})...", flush=True)
     app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)

@@ -1453,7 +1453,8 @@ def run_cli(args_list=None):
     # api-server command (for GUI mode)
     parser_api = subparsers.add_parser("api-server", help="Start the local REST API server for GUI clients")
     parser_api.add_argument("--port", type=int, default=34115, help="Port to listen on (default: 34115)")
-    
+    parser_api.add_argument("--debug", action="store_true", help="Enable verbose API logging")
+
     args = parser.parse_args(args_list)
     
     if hasattr(args, 'redirect_logs') and args.redirect_logs:
@@ -1563,7 +1564,8 @@ def run_cli(args_list=None):
     elif args.command == "api-server":
         from pvpn_cli.api import run_api_server
         port = getattr(args, 'port', 34115)
-        run_api_server(port=port)
+        debug = getattr(args, 'debug', False)
+        run_api_server(port=port, debug=debug)
     elif args.command == "trigger-captcha":
         from pvpn_cli.auth import ProtonAuthApi
         from pvpn_cli.device_info import DeviceInfoProvider
