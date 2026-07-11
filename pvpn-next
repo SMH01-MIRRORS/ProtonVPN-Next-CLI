@@ -1449,6 +1449,10 @@ def run_cli(args_list=None):
     parser_autosetup.add_argument("--proxy-netlify", action="store_true", help="Auto-select Netlify proxy")
     parser_autosetup.add_argument("--proxy-deno", action="store_true", help="Auto-select Deno proxy")
     parser_autosetup.add_argument("--no-proxy", action="store_true", help="Auto-select Direct connection (No proxy)")
+
+    # api-server command (for GUI mode)
+    parser_api = subparsers.add_parser("api-server", help="Start the local REST API server for GUI clients")
+    parser_api.add_argument("--port", type=int, default=34115, help="Port to listen on (default: 34115)")
     
     args = parser.parse_args(args_list)
     
@@ -1556,6 +1560,10 @@ def run_cli(args_list=None):
         do_register_cert()
     elif args.command == "register-extended-cert":
         do_register_extended_cert()
+    elif args.command == "api-server":
+        from pvpn_cli.api import run_api_server
+        port = getattr(args, 'port', 34115)
+        run_api_server(port=port)
     elif args.command == "trigger-captcha":
         from pvpn_cli.auth import ProtonAuthApi
         from pvpn_cli.device_info import DeviceInfoProvider
