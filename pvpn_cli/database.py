@@ -71,15 +71,23 @@ class Database:
                 CREATE TABLE IF NOT EXISTS awg_configs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT UNIQUE,
-                    params TEXT
+                    params TEXT,
+                    junk_level INTEGER DEFAULT 0
                 )
             """)
+
+            # Add junk_level column if it doesn't exist (for migration)
+            try:
+                cursor.execute("ALTER TABLE awg_configs ADD COLUMN junk_level INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+
             # Insert default undeletable AWG config
             cursor.execute("""
-                INSERT OR IGNORE INTO awg_configs (name, params)
-                VALUES ('vpn-next-default', 'vpn-next-default')
+                INSERT OR IGNORE INTO awg_configs (name, params, junk_level)
+                VALUES ('vpn-next-default', 'vpn-next-default', 0)
             """)
-            
+
             conn.commit()
 
     def set_setting(self, key: str, value: str):
@@ -100,14 +108,16 @@ class Database:
                 return row[0]
             return default
 
-    def add_awg_config(self, name: str, params: str):
+    def add_awg_config(self, name: str, params: str, junk_level: int = 3):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO awg_configs (name, params)
-                VALUES (?, ?)
-                ON CONFLICT(name) DO UPDATE SET params = excluded.params
-            """, (name, params))
+                INSERT INTO awg_configs (name, params, junk_level)
+                VALUES (?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    params = excluded.params,
+                    junk_level = excluded.junk_level
+            """, (name, params, junk_level))
             conn.commit()
 
     def delete_awg_config(self, identifier: str) -> bool:

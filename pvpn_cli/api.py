@@ -311,9 +311,39 @@ def add_awg_config():
     data = request.json or {}
     name = data.get("name")
     params = data.get("params")
+    junk_level = data.get("junk_level", 3)
     if not name or not params:
         return jsonify({"success": False, "error": "name and params required"}), 400
-    db.add_awg_config(name, params)
+    db.add_awg_config(name, params, junk_level)
+    return jsonify({"success": True})
+
+@app.route("/api/awg/generate-i1", methods=["POST"])
+def generate_i1():
+    data = request.json or {}
+    domain = data.get("domain")
+    from pvpn_cli.crypto import QuicI1Generator
+    import secrets
+
+    if domain:
+        i1 = QuicI1Generator.generate_i1(domain)
+    else:
+        # Default randomization from Android's list or just fresh generate
+        i1 = QuicI1Generator.generate_i1("google.com") # fallback
+
+    return jsonify({"success": True, "i1": i1})
+
+@app.route("/api/awg", methods=["DELETE"])
+def delete_awg_config():
+    db = Database()
+    data = request.json or {}
+    name = data.get("name")
+    if not name:
+        return jsonify({"success": False, "error": "name required"}), 400
+
+    if name.startswith("preset-") or name == "vpn-next-default":
+        return jsonify({"success": False, "error": "Cannot delete built-in config"}), 400
+
+    db.delete_awg_config(name)
     return jsonify({"success": True})
 
 @app.route("/api/vpn/connect", methods=["POST"])

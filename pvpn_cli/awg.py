@@ -6,18 +6,10 @@ DEFAULT_I1 = "<b 0xce000000010897a297ecc34cd6dd000044d0ec2e2e1ea2991f467ace42221
 
 def get_vpn_next_default() -> Dict[str, str]:
     return {
-        "Jc": "3",
-        "Jmin": "1",
-        "Jmax": "3",
-        "S1": "0",
-        "S2": "0",
-        "S3": "0",
-        "S4": "0",
-        "H1": "1",
-        "H2": "2",
-        "H3": "3",
-        "H4": "4",
-        "I1": DEFAULT_I1
+        "Jc": "3", "Jmin": "1", "Jmax": "3",
+        "S1": "0", "S2": "0", "S3": "0", "S4": "0",
+        "H1": "1", "H2": "2", "H3": "3", "H4": "4",
+        "I1": DEFAULT_I1, "I2": "", "I3": "", "I4": "", "I5": ""
     }
 
 def parse_awg_string(awg_str: str) -> Dict[str, str]:
