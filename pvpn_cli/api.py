@@ -346,6 +346,12 @@ def delete_awg_config():
     db.delete_awg_config(name)
     return jsonify({"success": True})
 
+@app.route("/api/vpn/recents", methods=["GET"])
+def get_recent_connections():
+    db = Database()
+    recents = db.get_recent_connections()
+    return jsonify({"success": True, "recents": recents})
+
 @app.route("/api/vpn/connect", methods=["POST"])
 def vpn_connect():
     """Trigger VPN connect via the CLI connect logic."""
@@ -354,6 +360,9 @@ def vpn_connect():
     if not server:
         return jsonify({"success": False, "error": "server required"}), 400
     try:
+        db = Database()
+        db.add_recent_connection(server)
+
         # Import and call the same do_connect used by CLI
         import subprocess, sys
         cli_path = sys.executable if not getattr(sys, 'frozen', False) else sys.argv[0]

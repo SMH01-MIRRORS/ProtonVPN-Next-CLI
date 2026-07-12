@@ -76,6 +76,14 @@ class Database:
                 )
             """)
 
+            # Recent connections table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS recent_connections (
+                    id TEXT PRIMARY KEY,
+                    last_connected TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             # Add junk_level column if it doesn't exist (for migration)
             try:
                 cursor.execute("ALTER TABLE awg_configs ADD COLUMN junk_level INTEGER DEFAULT 0")
@@ -259,4 +267,26 @@ class Database:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM servers ORDER BY country, city, name")
+            return [dict(row) for row in cursor.fetchall()]
+
+    def add_recent_connection(self, server_id: str):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO recent_connections (id, last_connected)
+                VALUES (?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET last_connected=CURRENT_TIMESTAMP
+            """, (server_id,))
+            conn.commit()
+
+    def get_recent_connections(self, limit: int = 5) -> List[Dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT s.* FROM servers s
+                JOIN recent_connections r ON s.id = r.id
+                ORDER BY r.last_connected DESC
+                LIMIT ?
+            """, (limit,))
             return [dict(row) for row in cursor.fetchall()]
