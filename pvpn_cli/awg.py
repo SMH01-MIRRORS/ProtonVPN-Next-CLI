@@ -21,9 +21,22 @@ def parse_awg_string(awg_str: str) -> Dict[str, str]:
     if not awg_str:
         return {}
         
-    if awg_str.lower() == "vpn-next-default":
+    low = awg_str.lower()
+    if low == "vpn-next-default" or low == "preset-low":
         return get_vpn_next_default()
-        
+    if low == "preset-off":
+        p = get_vpn_next_default()
+        p.update({"Jc": "0", "Jmin": "0", "Jmax": "0"})
+        return p
+    if low == "preset-medium":
+        p = get_vpn_next_default()
+        p.update({"Jc": "10", "Jmin": "50", "Jmax": "100"})
+        return p
+    if low == "preset-high":
+        p = get_vpn_next_default()
+        p.update({"Jc": "20", "Jmin": "400", "Jmax": "800"})
+        return p
+
     params = {}
     parts = awg_str.split(",")
     for part in parts:

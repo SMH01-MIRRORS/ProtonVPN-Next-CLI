@@ -85,10 +85,10 @@ class Database:
             # Insert default undeletable AWG configs
             defaults = [
                 ('vpn-next-default', 'vpn-next-default', 0),
-                ('preset-off', 'JC=0, JMIN=0, JMAX=0, S1=0, S2=0, S3=0, S4=0, H1=1, H2=2, H3=3, H4=4, I1=<b 0xce...>', 4),
-                ('preset-low', 'JC=3, JMIN=1, JMAX=3, S1=0, S2=0, S3=0, S4=0, H1=1, H2=2, H3=3, H4=4, I1=<b 0xce...>', 0),
-                ('preset-medium', 'JC=10, JMIN=50, JMAX=100, S1=0, S2=0, S3=0, S4=0, H1=1, H2=2, H3=3, H4=4, I1=<b 0xce...>', 1),
-                ('preset-high', 'JC=20, JMIN=400, JMAX=800, S1=0, S2=0, S3=0, S4=0, H1=1, H2=2, H3=3, H4=4, I1=<b 0xce...>', 2)
+                ('preset-off', 'preset-off', 4),
+                ('preset-low', 'preset-low', 0),
+                ('preset-medium', 'preset-medium', 1),
+                ('preset-high', 'preset-high', 2)
             ]
             for name, params, junk in defaults:
                 cursor.execute("""
