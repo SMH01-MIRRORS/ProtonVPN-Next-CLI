@@ -7,6 +7,9 @@ import os
 import subprocess
 import platform
 
+from pvpn_cli.sentry import init_sentry
+init_sentry()
+
 class Colors:
     HEADER = '\033[95m'
     OKBLUE = '\033[94m'
@@ -1495,6 +1498,7 @@ def run_cli(args_list=None):
     parser_api = subparsers.add_parser("api-server", help="Start the local REST API server for GUI clients")
     parser_api.add_argument("--port", type=int, default=34115, help="Port to listen on (default: 34115)")
     parser_api.add_argument("--debug", action="store_true", help="Enable verbose API logging")
+    parser_api.add_argument("--gui", action="store_true", help="Run in GUI mode (hide console on Windows)")
 
     # Port management
     port_parser = subparsers.add_parser("port", help="VPN Port management")
@@ -1702,7 +1706,7 @@ def run_cli(args_list=None):
 
 def main():
     if sys.platform == "win32":
-        hide_window = any(arg == "_watchdog" or arg == "_daemon" or arg.startswith("--redirect-logs") for arg in sys.argv)
+        hide_window = any(arg == "_watchdog" or arg == "_daemon" or arg == "--gui" or arg.startswith("--redirect-logs") for arg in sys.argv)
         if hide_window:
             import ctypes
             hwnd = ctypes.windll.kernel32.GetConsoleWindow()

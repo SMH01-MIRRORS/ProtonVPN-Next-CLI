@@ -11,6 +11,10 @@ from flask_cors import CORS
 from pvpn_cli.database import Database
 from pvpn_cli.auth import ProtonAuthApi
 from pvpn_cli.vpn import ProtonVpnApi
+from pvpn_cli.sentry import init_sentry
+
+# Initialize Sentry
+init_sentry()
 
 app = Flask(__name__)
 CORS(app)
@@ -319,6 +323,7 @@ def get_current_status_dict():
         "real_ip": db.get_setting("current_real_ip", ""),
         "max_tier": max_tier,
         "uid": session.get("uid", "N/A") if logged_in else "N/A",
+        "has_certificate": session is not None and bool(session.get("wg_private_key")),
         "vpn_state": current_state,
         "server_count": db.get_server_count(),
         "last_refresh": db.get_setting("last_server_fetch", "Never"),
@@ -339,6 +344,27 @@ def login_guest():
     api = ProtonAuthApi()
     try:
         response = api.login_guest()
+
+        # Auto-initialize session (Register cert + Fetch servers) to match CLI behavior
+        try:
+            db = Database()
+            api_vpn = ProtonVpnApi()
+            session = db.get_session()
+
+            if session and not session.get("wg_private_key"):
+                from pvpn_cli.crypto import ProtonCrypto
+                wg_priv, pem_pub = ProtonCrypto.generate_vpn_keys()
+                db.update_certificate(wg_priv, pem_pub, 0, 0)
+                api_vpn.register_cert(pem_pub)
+                print("-> Guest Login: Certificate registered automatically.", flush=True)
+
+            if db.get_server_count() == 0:
+                api_vpn.fetch_servers()
+                api_vpn.fetch_loads()
+                print("-> Guest Login: Server list fetched automatically.", flush=True)
+        except Exception as init_err:
+            print(f"[WARNING] Guest login post-init failed: {init_err}", flush=True)
+
         return jsonify({"success": True, "uid": response.get('UID')})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
@@ -376,6 +402,23 @@ def login_user_endpoint():
         api = ProtonAuthApi()
         try:
             response = api.login_user(username, password, two_factor_callback)
+
+            # Auto-initialize session
+            try:
+                db = Database()
+                api_vpn = ProtonVpnApi()
+                session = db.get_session()
+                if session and not session.get("wg_private_key"):
+                    from pvpn_cli.crypto import ProtonCrypto
+                    wg_priv, pem_pub = ProtonCrypto.generate_vpn_keys()
+                    db.update_certificate(wg_priv, pem_pub, 0, 0)
+                    api_vpn.register_cert(pem_pub)
+                if db.get_server_count() == 0:
+                    api_vpn.fetch_servers()
+                    api_vpn.fetch_loads()
+            except Exception:
+                pass
+
             login_state["status"] = "success"
             login_state["uid"] = response.get('UID')
         except Exception as e:
@@ -415,7 +458,7 @@ def submit_2fa():
 @app.route("/api/servers/fetch", methods=["POST"])
 def fetch_servers():
     api = ProtonVpnApi()
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     loc = data.get("locale")
     print(f"-> Fetching full server list (Locale: {loc})...", flush=True)
     try:
@@ -442,6 +485,8 @@ def fetch_servers():
 def fetch_loads():
     print("-> Updating server loads from Proton API...", flush=True)
     api = ProtonVpnApi()
+    # Ensure we don't 400 on empty body
+    _ = request.get_json(silent=True)
     try:
         loads = api.fetch_loads()
         msg = f"[SUCCESS] Updated loads for {len(loads)} servers."
@@ -703,6 +748,26 @@ def vpn_disconnect():
         return jsonify({"success": True, "message": "Disconnection initiated."})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
+
+@app.route("/api/logs", methods=["GET"])
+def get_logs():
+    from .routing import get_config_dir
+    config_dir = get_config_dir()
+    log_files = ["client.log", "daemon.log", "awg.log", "service.log"]
+    logs = {}
+    for filename in log_files:
+        path = os.path.join(config_dir, filename)
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    # Return last 1000 lines for efficiency
+                    lines = f.readlines()
+                    logs[filename] = "".join(lines[-1000:])
+            except Exception as e:
+                logs[filename] = f"Error reading log: {str(e)}"
+        else:
+            logs[filename] = "Log file not found."
+    return jsonify(logs)
 
 def status_watcher():
     """Background thread to watch for routing_state.json changes."""

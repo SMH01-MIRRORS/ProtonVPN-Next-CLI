@@ -19,6 +19,7 @@
             cryptography
             babel
             bcrypt
+            sentry-sdk
           ]);
           
           engine = pkgs.buildGoModule {
