@@ -87,7 +87,8 @@ class ProtonVpnApi:
     def get_server_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         with sqlite3.connect(self.db.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT raw_json FROM servers WHERE name = ? LIMIT 1", (name,))
+            # Try by name first, then by ID
+            cursor.execute("SELECT raw_json FROM servers WHERE name = ? OR id = ? LIMIT 1", (name, name))
             row = cursor.fetchone()
             if row:
                 return json.loads(row[0])

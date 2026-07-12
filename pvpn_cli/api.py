@@ -3,7 +3,10 @@ import sys
 import locale
 import threading
 import json
-from flask import Flask, request, jsonify
+import shutil
+import subprocess
+import time
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from pvpn_cli.database import Database
 from pvpn_cli.auth import ProtonAuthApi
@@ -12,18 +15,192 @@ from pvpn_cli.vpn import ProtonVpnApi
 app = Flask(__name__)
 CORS(app)
 
+# Global state for status updates
+status_state = {
+    "vpn_state": "UNKNOWN",
+    "subscribers": [],
+    "lock": threading.Lock()
+}
+
 # Global state for login flow
 login_state = {
     "thread": None,
-    "status": "idle",  # idle, running, 2fa_required, success, error
+    "status": "idle",
     "error_message": "",
     "event": threading.Event(),
     "2fa_code": "",
     "uid": ""
 }
 
-@app.route("/api/status", methods=["GET"])
-def get_status():
+def run_cli_elevated(args):
+    """
+    Universal Linux Elevation Logic:
+    Works on NixOS (via wrappers), Arch, Ubuntu, etc.
+    """
+    import sys, subprocess, os, shutil, time
+
+    # Identify binary path safely
+    binary_name = sys.argv[0]
+    binary_path = binary_name
+
+    if not os.path.isabs(binary_name) or not os.path.exists(binary_name):
+        found_path = shutil.which(binary_name)
+        if found_path:
+            binary_path = found_path
+        else:
+            binary_path = os.path.abspath(binary_name)
+
+    # In NixOS, Python scripts are often wrapped in bash scripts to inject PYTHONPATH.
+    # Running them via sys.executable strips these vars. If it's executable, run it directly!
+    if getattr(sys, 'frozen', False) or os.access(binary_path, os.X_OK):
+        base_cmd = [binary_path]
+    else:
+        base_cmd = [sys.executable, binary_path]
+
+    from pvpn_cli.routing import get_config_dir
+    config_arg = f"--config-dir={get_config_dir()}"
+    full_cmd = base_cmd + [config_arg] + args
+
+    if sys.platform == "linux":
+        # Force /run/wrappers/bin into PATH for NixOS to ensure SUID binaries are found
+        env = os.environ.copy()
+        env["PATH"] = f"/run/wrappers/bin:{env.get('PATH', '')}"
+
+        # CHECK FOR LINUX SANDBOX (NO_NEW_PRIVS)
+        def is_sandboxed():
+            try:
+                with open("/proc/self/status", "r") as f:
+                    for line in f:
+                        if line.startswith("NoNewPrivs:") and "1" in line:
+                            return True
+            except:
+                pass
+            return False
+
+        sandboxed = is_sandboxed()
+        if sandboxed:
+            print("-> Sandbox (NO_NEW_PRIVS) detected. Will use systemd escape for terminals.", flush=True)
+
+        systemd_run = shutil.which("systemd-run")
+
+        def get_best_path(cmd):
+            # NixOS prioritizes /run/wrappers/bin/ for SUID binaries
+            nix_wrapper = f"/run/wrappers/bin/{cmd}"
+            if os.path.exists(nix_wrapper):
+                return nix_wrapper
+            return shutil.which(cmd)
+
+        # 1. Try GUI tools first (Standard for most distros)
+        # We do NOT use systemd-run for GUI tools. Polkit needs the current session context!
+        is_kde = os.environ.get("KDE_FULL_SESSION") == "true" or "plasma" in os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
+        gui_preference = ["kdesu", "pkexec"] if is_kde else ["pkexec", "kdesu"]
+
+        for tool in gui_preference:
+            path = get_best_path(tool)
+            if path:
+                try:
+                    print(f"-> Trying GUI elevation: {tool}", flush=True)
+                    proc = subprocess.Popen([path] + full_cmd, env=env)
+
+                    # Wait briefly to see if it crashes immediately
+                    try:
+                        proc.wait(timeout=0.5)
+                        if proc.returncode != 0:
+                            print(f"[WARNING] {tool} exited immediately with code {proc.returncode}. Trying next...", flush=True)
+                            continue # Try the next GUI tool or fallback
+                        return # Successfully executed
+                    except subprocess.TimeoutExpired:
+                        return
+                except Exception as e:
+                    print(f"[WARNING] Failed to run {tool}: {e}", flush=True)
+                    pass
+
+        # 2. Terminal Fallback (Reliable for both sudo and doas)
+        print("-> GUI elevation failed or missing, falling back to Terminal...", flush=True)
+        terminals = [
+            ("konsole", ["-e"]),
+            ("kitty", ["--"]),
+            ("gnome-terminal", ["--"]),
+            ("xfce4-terminal", ["-e"]),
+            ("mate-terminal", ["--"]),
+            ("alacritty", ["-e"]),
+            ("xterm", ["-e"])
+        ]
+
+        elevate_bin = get_best_path("sudo") or "sudo"
+
+        for term, term_args in terminals:
+            term_path = shutil.which(term)
+            if term_path:
+                try:
+                    # Construct command string
+                    safe_args = " ".join([f"'{c}'" for c in [elevate_bin] + full_cmd])
+
+                    # Add a pause if the command fails, so the terminal stays open and you can read the error!
+                    pause_cmd = f"{safe_args}; EXIT_CODE=$?; if [ $EXIT_CODE -ne 0 ]; then echo ''; echo '=== ERROR ==='; echo 'Command failed with exit code '$EXIT_CODE; echo 'Press ENTER to close this window...'; read dummy; fi"
+
+                    launch_cmd = [term_path] + term_args + ["sh", "-c", pause_cmd]
+
+                    # Apply Jailbreak ONLY for the terminal
+                    if sandboxed and systemd_run:
+                        prefix = [systemd_run, "--user", "--quiet"]
+                        # Forward essential variables so the terminal can talk to Wayland/X11
+                        for env_var in ["DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY", "KDE_FULL_SESSION", "XDG_CURRENT_DESKTOP"]:
+                            if env_var in os.environ:
+                                prefix.append(f"--setenv={env_var}={os.environ[env_var]}")
+                        # Inject PATH so the systemd service sees our NixOS wrapper path
+                        prefix.append(f"--setenv=PATH={env['PATH']}")
+                        launch_cmd = prefix + launch_cmd
+
+                    print(f"-> Spawning terminal: {term}", flush=True)
+                    subprocess.Popen(launch_cmd, env=env)
+                    return
+                except Exception as e:
+                    print(f"[WARNING] Failed to spawn terminal {term}: {e}", flush=True)
+                    pass
+
+        # 3. Last resort: direct run
+        try:
+            subprocess.Popen([elevate_bin] + full_cmd, env=env)
+            return
+        except:
+            pass
+
+    # Windows (UAC)
+    subprocess.Popen(full_cmd)
+
+@app.route("/api/events")
+def events():
+    def stream():
+        q = threading.Event()
+        with status_state["lock"]:
+            status_state["subscribers"].append(q)
+
+        try:
+            # Send initial status
+            yield f"data: {json.dumps(get_current_status_dict())}\n\n"
+
+            while True:
+                # Wait for update
+                if q.wait(timeout=30):
+                    q.clear()
+                    yield f"data: {json.dumps(get_current_status_dict())}\n\n"
+                else:
+                    # Keep-alive
+                    yield ": keep-alive\n\n"
+        finally:
+            with status_state["lock"]:
+                if q in status_state["subscribers"]:
+                    status_state["subscribers"].remove(q)
+
+    return Response(stream(), mimetype="text/event-stream")
+
+def notify_status_change():
+    with status_state["lock"]:
+        for q in status_state["subscribers"]:
+            q.set()
+
+def get_current_status_dict():
     db = Database()
     session = db.get_session()
     logged_in = session is not None and "access_token" in session
@@ -41,23 +218,30 @@ def get_status():
         except Exception:
             max_tier = 0
 
-    # Collect more status info for the "Status" screen in settings
     routing_file = os.path.join(db.db_path.replace("protonvpn.db", "routing_state.json"))
     vpn_active = os.path.exists(routing_file)
 
-    status = {
+    # Logic for current state
+    current_state = status_state["vpn_state"]
+    if current_state not in ["CONNECTING", "DISCONNECTING"]:
+        current_state = "CONNECTED" if vpn_active else "DISCONNECTED"
+
+    return {
         "logged_in": logged_in,
         "bypass": db.get_setting("api_bypass", "0"),
         "active_server": db.get_setting("active_server_name", ""),
         "real_ip": db.get_setting("current_real_ip", ""),
         "max_tier": max_tier,
         "uid": session.get("uid", "N/A") if logged_in else "N/A",
-        "vpn_state": "CONNECTED" if vpn_active else "DISCONNECTED",
+        "vpn_state": current_state,
         "server_count": db.get_server_count(),
         "last_refresh": db.get_setting("last_server_fetch", "Never"),
         "locale": (locale.getdefaultlocale()[0] or "en_US") if hasattr(locale, 'getdefaultlocale') else "en_US"
     }
-    return jsonify(status)
+
+@app.route("/api/status", methods=["GET"])
+def get_status():
+    return jsonify(get_current_status_dict())
 
 @app.route("/api/login/guest", methods=["POST"])
 def login_guest():
@@ -327,8 +511,7 @@ def generate_i1():
     if domain:
         i1 = QuicI1Generator.generate_i1(domain)
     else:
-        # Default randomization from Android's list or just fresh generate
-        i1 = QuicI1Generator.generate_i1("google.com") # fallback
+        i1 = QuicI1Generator.generate_i1("google.com")
 
     return jsonify({"success": True, "i1": i1})
 
@@ -362,36 +545,57 @@ def vpn_connect():
     try:
         db = Database()
         db.add_recent_connection(server)
-
-        # Import and call the same do_connect used by CLI
-        import subprocess, sys
-        cli_path = sys.executable if not getattr(sys, 'frozen', False) else sys.argv[0]
-
         print(f"-> GUI Connection request: {server}", flush=True)
 
-        # Run as background but INHERIT stdout/stderr so we see logs in terminal
-        subprocess.Popen([cli_path, "connect", server],
-                         stdout=None, stderr=None)
+        status_state["vpn_state"] = "CONNECTING"
+        notify_status_change()
 
+        run_cli_elevated(["connect", server])
         return jsonify({"success": True, "message": f"Connection to {server} initiated."})
     except Exception as e:
+        status_state["vpn_state"] = "DISCONNECTED"
+        notify_status_change()
         return jsonify({"success": False, "error": str(e)}), 400
 
 @app.route("/api/vpn/disconnect", methods=["POST"])
 def vpn_disconnect():
     """Trigger VPN disconnect via the CLI disconnect logic."""
     try:
-        import subprocess, sys
-        cli_path = sys.executable if not getattr(sys, 'frozen', False) else sys.argv[0]
-
         print(f"-> GUI Disconnect request", flush=True)
 
-        subprocess.Popen([cli_path, "disconnect"],
-                         stdout=None, stderr=None)
+        status_state["vpn_state"] = "DISCONNECTING"
+        notify_status_change()
 
+        run_cli_elevated(["disconnect"])
         return jsonify({"success": True, "message": "Disconnection initiated."})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
+
+def status_watcher():
+    """Background thread to watch for routing_state.json changes."""
+    db = Database()
+    routing_file = os.path.join(db.db_path.replace("protonvpn.db", "routing_state.json"))
+    last_exists = os.path.exists(routing_file)
+
+    while True:
+        time.sleep(0.5)
+        exists = os.path.exists(routing_file)
+
+        # If state was CONNECTING/DISCONNECTING, we check if it finished
+        current_state = status_state["vpn_state"]
+
+        changed = False
+        if exists != last_exists:
+            changed = True
+        elif current_state == "CONNECTING" and exists:
+            changed = True
+        elif current_state == "DISCONNECTING" and not exists:
+            changed = True
+
+        if changed:
+            status_state["vpn_state"] = "CONNECTED" if exists else "DISCONNECTED"
+            last_exists = exists
+            notify_status_change()
 
 def run_api_server(port=34115, debug=False):
     import logging
@@ -400,6 +604,10 @@ def run_api_server(port=34115, debug=False):
         log.setLevel(logging.INFO)
     else:
         log.setLevel(logging.ERROR)
+
+    # Start status watcher
+    watcher = threading.Thread(target=status_watcher, daemon=True)
+    watcher.start()
 
     print(f"Starting API Daemon on port {port} (Debug: {debug})...", flush=True)
     app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)

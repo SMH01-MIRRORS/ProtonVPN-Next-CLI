@@ -293,7 +293,7 @@ class RoutingManager:
                 dns_setup_script = f"""
 if command -v resolvectl >/dev/null 2>&1; then
     resolvectl dns {awg_iface} {dns_ips_space}
-    resolvectl domain {awg_iface} ~\.
+    resolvectl domain {awg_iface} ~\\.
     PHYSICAL_DNS=$(resolvectl status {iface} 2>/dev/null | grep 'DNS Servers' | awk '{{print $3, $4, $5}}')
 else
     PHYSICAL_DNS=$(grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' /etc/resolv.conf 2>/dev/null)

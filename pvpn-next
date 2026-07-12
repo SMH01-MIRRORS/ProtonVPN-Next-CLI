@@ -643,7 +643,10 @@ def do_connect(server_name: str, awg_str: str):
     if not server_json:
         print(f"[ERROR] Server '{server_name}' not found in local cache. Run 'fetch-servers' first.")
         sys.exit(1)
-        
+
+    # Extract real name (in case server_name was an ID from GUI)
+    server_name = server_json.get("Name", server_name)
+
     servers_list = server_json.get("Servers", [])
     if not servers_list:
         print("[ERROR] No physical nodes found for this logical server.")
