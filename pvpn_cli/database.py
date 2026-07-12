@@ -84,6 +84,15 @@ class Database:
                 )
             """)
 
+            # Traffic statistics table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS traffic_stats (
+                    date TEXT PRIMARY KEY,
+                    rx_bytes INTEGER DEFAULT 0,
+                    tx_bytes INTEGER DEFAULT 0
+                )
+            """)
+
             # Add junk_level column if it doesn't exist (for migration)
             try:
                 cursor.execute("ALTER TABLE awg_configs ADD COLUMN junk_level INTEGER DEFAULT 0")
@@ -290,3 +299,58 @@ class Database:
                 LIMIT ?
             """, (limit,))
             return [dict(row) for row in cursor.fetchall()]
+
+    def update_traffic_stats(self, rx_delta: int, tx_delta: int):
+        from datetime import date
+        today = date.today().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO traffic_stats (date, rx_bytes, tx_bytes)
+                VALUES (?, ?, ?)
+                ON CONFLICT(date) DO UPDATE SET
+                    rx_bytes = rx_bytes + excluded.rx_bytes,
+                    tx_bytes = tx_bytes + excluded.tx_bytes
+            """, (today, rx_delta, tx_delta))
+            conn.commit()
+
+    def get_traffic_stats(self, date_str: str) -> Dict[str, int]:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT rx_bytes, tx_bytes FROM traffic_stats WHERE date = ?", (date_str,))
+            row = cursor.fetchone()
+            if row:
+                return {"rx": row[0], "tx": row[1]}
+            return {"rx": 0, "tx": 0}
+
+    def get_historical_stats(self) -> Dict[str, Dict[str, int]]:
+        from datetime import date, timedelta
+        import calendar
+
+        today = date.today()
+        first_of_month = today.replace(day=1)
+        first_of_year = today.replace(month=1, day=1)
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            # Today
+            cursor.execute("SELECT rx_bytes, tx_bytes FROM traffic_stats WHERE date = ?", (today.isoformat(),))
+            t_row = cursor.fetchone()
+            today_stats = {"rx": t_row[0] if t_row else 0, "tx": t_row[1] if t_row else 0}
+
+            # Month
+            cursor.execute("SELECT SUM(rx_bytes), SUM(tx_bytes) FROM traffic_stats WHERE date >= ?", (first_of_month.isoformat(),))
+            m_row = cursor.fetchone()
+            month_stats = {"rx": m_row[0] if m_row[0] else 0, "tx": m_row[1] if m_row[1] else 0}
+
+            # Year
+            cursor.execute("SELECT SUM(rx_bytes), SUM(tx_bytes) FROM traffic_stats WHERE date >= ?", (first_of_year.isoformat(),))
+            y_row = cursor.fetchone()
+            year_stats = {"rx": y_row[0] if y_row[0] else 0, "tx": y_row[1] if y_row[1] else 0}
+
+            return {
+                "today": today_stats,
+                "month": month_stats,
+                "year": year_stats
+            }

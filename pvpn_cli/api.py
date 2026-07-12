@@ -22,6 +22,17 @@ status_state = {
     "lock": threading.Lock()
 }
 
+# Global traffic state
+traffic_state = {
+    "speed_rx": 0,
+    "speed_tx": 0,
+    "session_rx": 0,
+    "session_tx": 0,
+    "last_abs_rx": 0,
+    "last_abs_tx": 0,
+    "is_active": False
+}
+
 # Global state for login flow
 login_state = {
     "thread": None,
@@ -200,6 +211,68 @@ def notify_status_change():
         for q in status_state["subscribers"]:
             q.set()
 
+def traffic_tracker():
+    """Background thread in API process to track real-time traffic."""
+    import psutil
+    from .routing import get_config_dir
+    db = Database()
+    routing_file = os.path.join(db.db_path.replace("protonvpn.db", "routing_state.json"))
+    iface = "awg0"
+
+    while True:
+        try:
+            vpn_active = os.path.exists(routing_file)
+            if vpn_active:
+                stats = psutil.net_io_counters(pernic=True)
+                if iface in stats:
+                    current = stats[iface]
+                    rx = current.bytes_recv
+                    tx = current.bytes_sent
+
+                    if traffic_state["last_abs_rx"] > 0:
+                        delta_rx = rx - traffic_state["last_abs_rx"]
+                        delta_tx = tx - traffic_state["last_abs_tx"]
+
+                        if delta_rx < 0: delta_rx = 0
+                        if delta_tx < 0: delta_tx = 0
+
+                        traffic_state["speed_rx"] = delta_rx
+                        traffic_state["speed_tx"] = delta_tx
+                        traffic_state["session_rx"] += delta_rx
+                        traffic_state["session_tx"] += delta_tx
+
+                        # Save to historical DB via the daemon's logic or here
+                        # For simplicity, we can do it here every 10 seconds
+                        if int(time.time()) % 10 == 0:
+                             db.update_traffic_stats(delta_rx, delta_tx)
+                        else:
+                             db.update_traffic_stats(delta_rx, delta_tx)
+
+                    traffic_state["last_abs_rx"] = rx
+                    traffic_state["last_abs_tx"] = tx
+                    traffic_state["is_active"] = True
+
+                    # Force SSE update every second for live speed
+                    notify_status_change()
+                else:
+                    traffic_state["speed_rx"] = 0
+                    traffic_state["speed_tx"] = 0
+            else:
+                # Reset if VPN disconnected
+                if traffic_state["is_active"]:
+                    traffic_state["speed_rx"] = 0
+                    traffic_state["speed_tx"] = 0
+                    traffic_state["session_rx"] = 0
+                    traffic_state["session_tx"] = 0
+                    traffic_state["last_abs_rx"] = 0
+                    traffic_state["last_abs_tx"] = 0
+                    traffic_state["is_active"] = False
+                    notify_status_change()
+
+        except Exception:
+            pass
+        time.sleep(1)
+
 def get_current_status_dict():
     db = Database()
     session = db.get_session()
@@ -226,6 +299,16 @@ def get_current_status_dict():
     if current_state not in ["CONNECTING", "DISCONNECTING"]:
         current_state = "CONNECTED" if vpn_active else "DISCONNECTED"
 
+    # Fetch traffic stats
+    traffic = {
+        "speed_rx": traffic_state["speed_rx"],
+        "speed_tx": traffic_state["speed_tx"],
+        "session_rx": traffic_state["session_rx"],
+        "session_tx": traffic_state["session_tx"]
+    }
+
+    historical = db.get_historical_stats()
+
     return {
         "logged_in": logged_in,
         "bypass": db.get_setting("api_bypass", "0"),
@@ -236,7 +319,9 @@ def get_current_status_dict():
         "vpn_state": current_state,
         "server_count": db.get_server_count(),
         "last_refresh": db.get_setting("last_server_fetch", "Never"),
-        "locale": (locale.getdefaultlocale()[0] or "en_US") if hasattr(locale, 'getdefaultlocale') else "en_US"
+        "locale": (locale.getdefaultlocale()[0] or "en_US") if hasattr(locale, 'getdefaultlocale') else "en_US",
+        "traffic": traffic,
+        "stats": historical
     }
 
 @app.route("/api/status", methods=["GET"])
@@ -608,6 +693,10 @@ def run_api_server(port=34115, debug=False):
     # Start status watcher
     watcher = threading.Thread(target=status_watcher, daemon=True)
     watcher.start()
+
+    # Start traffic tracker
+    tracker = threading.Thread(target=traffic_tracker, daemon=True)
+    tracker.start()
 
     print(f"Starting API Daemon on port {port} (Debug: {debug})...", flush=True)
     app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
