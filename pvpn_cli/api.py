@@ -325,7 +325,9 @@ def get_current_status_dict():
         "locale": (locale.getdefaultlocale()[0] or "en_US") if hasattr(locale, 'getdefaultlocale') else "en_US",
         "traffic": traffic,
         "stats": historical,
-        "traffic_stats_enabled": db.get_setting("traffic_stats_enabled", "true") == "true"
+        "traffic_stats_enabled": db.get_setting("traffic_stats_enabled", "true") == "true",
+        "default_connect_strategy": db.get_setting("default_connect_strategy", "best"),
+        "default_connect_server": db.get_setting("default_connect_server", "")
     }
 
 @app.route("/api/status", methods=["GET"])
@@ -518,7 +520,9 @@ def get_settings():
         "allow_lan": db.get_setting("allow_lan", "false"),
         "vpn_port": db.get_setting("vpn_port", "0"),
         "gui_theme": db.get_setting("gui_theme", "system"),
-        "traffic_stats_enabled": db.get_setting("traffic_stats_enabled", "true")
+        "traffic_stats_enabled": db.get_setting("traffic_stats_enabled", "true"),
+        "default_connect_strategy": db.get_setting("default_connect_strategy", "best"),
+        "default_connect_server": db.get_setting("default_connect_server", "")
     }
     return jsonify({"success": True, "settings": settings})
 
@@ -527,8 +531,14 @@ def update_settings():
     db = Database()
     data = request.json or {}
     messages = []
+    allowed_keys = [
+        "protocol", "obfuscation_enabled", "obfuscation_config",
+        "split_tunneling", "custom_dns", "kill_switch", "auto_connect",
+        "spoof_country", "allow_lan", "vpn_port", "gui_theme",
+        "traffic_stats_enabled", "default_connect_strategy", "default_connect_server"
+    ]
     for key, value in data.items():
-        if key in ["protocol", "obfuscation_enabled", "obfuscation_config", "split_tunneling", "custom_dns", "kill_switch", "auto_connect", "spoof_country", "allow_lan", "vpn_port", "gui_theme", "traffic_stats_enabled"]:
+        if key in allowed_keys:
             db.set_setting(key, str(value).lower() if isinstance(value, bool) else str(value))
 
             # Mimic CLI logging style
@@ -632,8 +642,41 @@ def vpn_connect():
     server = data.get("server")
     if not server:
         return jsonify({"success": False, "error": "server required"}), 400
+
+    db = Database()
+    vpn = ProtonVpnApi()
+
+    # Handle "default" or "fastest" server aliases
+    if server in ["default", "fastest"]:
+        strategy = db.get_setting("default_connect_strategy", "best")
+        if server == "fastest": strategy = "best" # UI Quick Connect always uses "best"
+
+        if strategy == "best":
+            best = vpn.get_best_server()
+            if best:
+                server = best.get("ID")
+            else:
+                return jsonify({"success": False, "error": "No servers available for your tier."}), 400
+        elif strategy == "recent":
+            recents = db.get_recent_connections(limit=1)
+            if recents:
+                server = recents[0].get("id")
+            else:
+                # Fallback to best if no recents
+                best = vpn.get_best_server()
+                server = best.get("ID") if best else None
+        elif strategy == "custom":
+            custom_id = db.get_setting("default_connect_server")
+            if custom_id:
+                server = custom_id
+            else:
+                best = vpn.get_best_server()
+                server = best.get("ID") if best else None
+
+    if not server:
+         return jsonify({"success": False, "error": "Could not determine server to connect."}), 400
+
     try:
-        db = Database()
         db.add_recent_connection(server)
         print(f"-> GUI Connection request: {server}", flush=True)
 

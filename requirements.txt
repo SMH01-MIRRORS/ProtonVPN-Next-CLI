@@ -4,3 +4,4 @@ bcrypt
 psutil
 flask
 flask-cors
+setuptools

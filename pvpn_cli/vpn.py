@@ -94,6 +94,24 @@ class ProtonVpnApi:
                 return json.loads(row[0])
             return None
 
+    def get_best_server(self) -> Optional[Dict[str, Any]]:
+        """Get the server with the lowest load available for the current account tier."""
+        max_tier = self.get_max_tier()
+        with sqlite3.connect(self.db.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            # Find logical server with lowest load and tier <= max_tier
+            cursor.execute("""
+                SELECT raw_json FROM servers
+                WHERE tier <= ?
+                ORDER BY load ASC, tier DESC, name ASC
+                LIMIT 1
+            """, (max_tier,))
+            row = cursor.fetchone()
+            if row:
+                return json.loads(row[0])
+            return None
+
     def get_max_tier(self) -> int:
         session = self.db.get_session()
         if not session or not session.get("access_token"):

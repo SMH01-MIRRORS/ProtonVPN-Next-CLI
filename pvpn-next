@@ -1344,6 +1344,31 @@ def ensure_daemon_running():
         with open(daemon_pid_path, "w") as f:
             f.write(str(daemon_proc.pid))
 
+def do_set_default_connect(strategy: str, server: str = None):
+    db = Database()
+    strategy = strategy.lower()
+    if strategy not in ["best", "recent", "custom"]:
+        print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} Invalid strategy. Use: best, recent, or custom.")
+        sys.exit(1)
+
+    db.set_setting("default_connect_strategy", strategy)
+    if strategy == "custom":
+        if not server:
+            print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} Server name/ID required for 'custom' strategy.")
+            sys.exit(1)
+
+        # Verify server exists
+        vpn = ProtonVpnApi()
+        srv = vpn.get_server_by_name(server)
+        if not srv:
+            print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} Server '{server}' not found.")
+            sys.exit(1)
+
+        db.set_setting("default_connect_server", str(srv.get("ID")))
+        print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} Default connection set to custom server: {srv.get('Name')}")
+    else:
+        print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} Default connection strategy set to: {strategy}")
+
 def run_cli(args_list=None):
     fix_config_permissions()
     parser = argparse.ArgumentParser(description="PVPN Next CLI")
@@ -1482,6 +1507,11 @@ def run_cli(args_list=None):
     theme_parser = subparsers.add_parser("gui-theme", help="GUI Theme management")
     theme_parser.add_argument("theme", nargs="?", help="Set GUI theme (system, light, dark, etc.)")
 
+    # set-default-connect command
+    default_conn_parser = subparsers.add_parser("set-default-connect", help="Set default connection behavior for Quick Connect")
+    default_conn_parser.add_argument("strategy", choices=["best", "recent", "custom"], help="Strategy: best (lowest load), recent (last used), custom (specific server)")
+    default_conn_parser.add_argument("server", nargs="?", help="Server name or ID (required only for 'custom' strategy)")
+
     args = parser.parse_args(args_list)
     
     if hasattr(args, 'redirect_logs') and args.redirect_logs:
@@ -1615,6 +1645,9 @@ def run_cli(args_list=None):
         else:
             current = db.get_setting("gui_theme", "system")
             print(f"Current GUI Theme: {current}")
+
+    elif args.command == "set-default-connect":
+        do_set_default_connect(args.strategy, args.server)
 
     elif args.command == "api-server":
         from pvpn_cli.api import run_api_server
