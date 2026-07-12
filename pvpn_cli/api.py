@@ -221,8 +221,11 @@ def traffic_tracker():
 
     while True:
         try:
+            # Check if stats are enabled
+            stats_enabled = db.get_setting("traffic_stats_enabled", "true") == "true"
+
             vpn_active = os.path.exists(routing_file)
-            if vpn_active:
+            if vpn_active and stats_enabled:
                 stats = psutil.net_io_counters(pernic=True)
                 if iface in stats:
                     current = stats[iface]
@@ -321,7 +324,8 @@ def get_current_status_dict():
         "last_refresh": db.get_setting("last_server_fetch", "Never"),
         "locale": (locale.getdefaultlocale()[0] or "en_US") if hasattr(locale, 'getdefaultlocale') else "en_US",
         "traffic": traffic,
-        "stats": historical
+        "stats": historical,
+        "traffic_stats_enabled": db.get_setting("traffic_stats_enabled", "true") == "true"
     }
 
 @app.route("/api/status", methods=["GET"])
@@ -513,7 +517,8 @@ def get_settings():
         "spoof_country": db.get_setting("spoof_country", "false"),
         "allow_lan": db.get_setting("allow_lan", "false"),
         "vpn_port": db.get_setting("vpn_port", "0"),
-        "gui_theme": db.get_setting("gui_theme", "system")
+        "gui_theme": db.get_setting("gui_theme", "system"),
+        "traffic_stats_enabled": db.get_setting("traffic_stats_enabled", "true")
     }
     return jsonify({"success": True, "settings": settings})
 
@@ -523,7 +528,7 @@ def update_settings():
     data = request.json or {}
     messages = []
     for key, value in data.items():
-        if key in ["protocol", "obfuscation_enabled", "obfuscation_config", "split_tunneling", "custom_dns", "kill_switch", "auto_connect", "spoof_country", "allow_lan", "vpn_port", "gui_theme"]:
+        if key in ["protocol", "obfuscation_enabled", "obfuscation_config", "split_tunneling", "custom_dns", "kill_switch", "auto_connect", "spoof_country", "allow_lan", "vpn_port", "gui_theme", "traffic_stats_enabled"]:
             db.set_setting(key, str(value).lower() if isinstance(value, bool) else str(value))
 
             # Mimic CLI logging style
