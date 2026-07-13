@@ -424,13 +424,7 @@ def get_current_status_dict():
         max_tier = 0
         if logged_in:
             try:
-                max_tier_str = db.get_setting("max_tier", "0")
-                if max_tier_str == "0":
-                    api = ProtonVpnApi()
-                    max_tier = api.get_max_tier()
-                    db.set_setting("max_tier", str(max_tier))
-                else:
-                    max_tier = int(max_tier_str)
+                max_tier = int(db.get_setting("max_tier", "0"))
             except Exception:
                 max_tier = 0
 
