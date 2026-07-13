@@ -323,6 +323,7 @@ done
                     
             engine_cmd = f'nohup {engine_path} -dns "{dns_ips}" < "{config_path}" > "{log_path}" 2> "{client_log_path}" &' if not engine_running else ""
             script = f"""
+ip link delete {awg_iface} 2>/dev/null || true
 {engine_cmd}
 # Wait for interface
 for i in $(seq 1 30); do
@@ -342,8 +343,11 @@ echo "-> VPN is running in the background. Use 'disconnect' to stop."
             
             # Launch PID scanner in background if needed
             if exclude_apps:
+                env = os.environ.copy()
+                for k in ["_MEIPASS", "_MEIPASS1", "_MEIPASS2", "_MEIPASS3"]:
+                    env.pop(k, None)
                 scanner_cmd = [sys.executable, os.path.realpath(sys.argv[0]), "_pid-scanner"]
-                subprocess.Popen(scanner_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen(scanner_cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def teardown_routing(self):
         if not os.path.exists(self.state_file):
@@ -402,5 +406,7 @@ echo "-> VPN is running in the background. Use 'disconnect' to stop."
             
             if os.path.exists(self.state_file):
                 os.remove(self.state_file)
-        except:
-            pass
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"-> Teardown error: {e}", flush=True)

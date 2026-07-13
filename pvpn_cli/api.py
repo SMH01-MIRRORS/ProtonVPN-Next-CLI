@@ -210,7 +210,9 @@ def location_tracker():
         except Exception:
             time.sleep(60)
 
-def run_cli_elevated(args):
+class SudoRequiredError(Exception): pass
+
+def run_cli_elevated(args, sudo_password=None):
     """
     Universal Linux Elevation Logic:
     Works on NixOS (via wrappers), Arch, Ubuntu, etc.
@@ -228,8 +230,6 @@ def run_cli_elevated(args):
         else:
             binary_path = os.path.abspath(binary_name)
 
-    # In NixOS, Python scripts are often wrapped in bash scripts to inject PYTHONPATH.
-    # Running them via sys.executable strips these vars. If it's executable, run it directly!
     if getattr(sys, 'frozen', False) or os.access(binary_path, os.X_OK):
         base_cmd = [binary_path]
     else:
@@ -241,146 +241,84 @@ def run_cli_elevated(args):
 
     if sys.platform == "linux":
         env = os.environ.copy()
-
-        # 1. Force a robust PATH for NixOS and other distros when elevating.
-        # GUI elevation tools (run0, pkexec) ruthlessly strip PATH, causing pkill/ip/wg to fail.
+        for k in ["_MEIPASS", "_MEIPASS1", "_MEIPASS2", "_MEIPASS3"]:
+            env.pop(k, None)
+        env["PVPN_GUI_MODE"] = "1"
         robust_path = "/run/wrappers/bin:/run/current-system/sw/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-        env_path = f"{robust_path}:{env.get('PATH', '')}"
-        env["PATH"] = env_path
+        env["PATH"] = f"{robust_path}:{env.get('PATH', '')}"
 
-        # CHECK FOR LINUX SANDBOX (NO_NEW_PRIVS)
         def is_sandboxed():
             try:
                 with open("/proc/self/status", "r") as f:
                     for line in f:
                         if line.startswith("NoNewPrivs:") and "1" in line:
                             return True
-            except:
-                pass
+            except: pass
             return False
 
         sandboxed = is_sandboxed()
-        if sandboxed:
-            print("-> Sandbox (NO_NEW_PRIVS) detected. Will use systemd escape for terminals.", flush=True)
-
         systemd_run = shutil.which("systemd-run")
 
         def get_best_path(cmd):
-            # NixOS prioritizes /run/wrappers/bin/ for SUID binaries
             nix_wrapper = f"/run/wrappers/bin/{cmd}"
-            if os.path.exists(nix_wrapper):
-                return nix_wrapper
+            if os.path.exists(nix_wrapper): return nix_wrapper
             return shutil.which(cmd)
 
         elevate_bin = get_best_path("doas") if shutil.which("doas") else (get_best_path("sudo") or "sudo")
 
         # 1. Try passwordless execution first (Silent check)
         try:
-            # -n (non-interactive) fails if a password is required
             check_cmd = [elevate_bin, "-n", "true"]
             if subprocess.run(check_cmd, env=env, capture_output=True).returncode == 0:
-                print(f"-> Passwordless {elevate_bin} detected, running directly.", flush=True)
                 subprocess.Popen([elevate_bin, "-n"] + full_cmd, env=env)
                 return
-        except Exception:
-            pass
+        except Exception: pass
 
-        # 2. Terminal Elevation (Reliable and consistent across distros)
-        # We skip GUI tools (run0, pkexec) because they are often unreliable or strip PATH.
-        terminals = [
-            ("konsole", ["-e"]),
-            ("kitty", ["--"]),
-            ("gnome-terminal", ["--"]),
-            ("xfce4-terminal", ["-e"]),
-            ("mate-terminal", ["--"]),
-            ("alacritty", ["-e"]),
-            ("xterm", ["-e"])
-        ]
+        # Password is required
+        if not sudo_password:
+            raise SudoRequiredError("Sudo password is required")
 
-        elevate_bin = get_best_path("doas") if shutil.which("doas") else (get_best_path("sudo") or "sudo")
-        user = os.environ.get("SUDO_USER", os.environ.get("USER", "your_user"))
+        # 2. Sudo with password provided via UI
+        sudo_bin = get_best_path("sudo") or "sudo"
+        launch_cmd = [sudo_bin, "-S", "env", "PVPN_GUI_MODE=1"] + full_cmd
+        
+        if sandboxed and systemd_run:
+            prefix = [systemd_run, "--user", "--wait", "--quiet", "--pipe", "--property=KillMode=process"]
+            for env_var in ["DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY"]:
+                if env_var in os.environ: prefix.append(f"--setenv={env_var}={os.environ[env_var]}")
+            prefix.append(f"--setenv=PATH={env['PATH']}")
+            launch_cmd = prefix + launch_cmd
 
-        # Detailed instructions for the user
-        instructions = f"""
-=== HOW TO ENABLE PASSWORDLESS VPN ===
-To connect or disconnect without entering your password every time,
-you can add a rule to your privilege escalation tool.
-
---- Standard Distros (Ubuntu, Arch, Fedora, etc.) ---
-Run this command in your terminal:
-  echo '{user} ALL=(ALL) NOPASSWD: {binary_path}' | sudo tee /etc/sudoers.d/pvpn-next
-
---- NixOS (Add to /etc/nixos/configuration.nix) ---
-security.sudo.extraRules = [
-  {{
-    groups = [ "wheel" ];
-    commands = [
-      {{
-        command = "{binary_path}";
-        options = [ "NOPASSWD" ];
-      }}
-    ];
-  }}
-];
-
-(Or if using doas on NixOS):
-security.doas.extraRules = [
-  {{ groups = [ "wheel" ]; noPass = true; cmd = "{binary_path}"; }}
-];
-
---- doas users (e.g. Alpine, OpenBSD) ---
-Add this line to /etc/doas.conf:
-  permit nopass {user} as root cmd {binary_path}
-=======================================
-"""
-        # Escape single quotes for the shell command
-        safe_instr = instructions.replace("'", "'\\''").strip()
-        safe_args = " ".join([f"'{c}'" for c in [elevate_bin] + full_cmd])
-
-        for term, term_args in terminals:
-            term_path = shutil.which(term)
-            if term_path:
-                try:
-                    # Construct command: Show instructions -> Wait for Enter -> Run sudo/doas -> Wait if error
-                    pause_cmd = (
-                        f"printf '{safe_instr}\\n\\n'; "
-                        f"{safe_args}; "
-                        f"EXIT_CODE=$?; "
-                        f"if [ $EXIT_CODE -ne 0 ]; then "
-                        f"echo ''; echo '=== ERROR ==='; "
-                        f"echo 'Command failed with exit code '$EXIT_CODE; "
-                        f"echo 'Press ENTER to close this window...'; read dummy; "
-                        f"fi"
-                    )
-
-                    launch_cmd = [term_path] + term_args + ["sh", "-c", pause_cmd]
-
-                    # Apply Jailbreak ONLY for the terminal
-                    if sandboxed and systemd_run:
-                        prefix = [systemd_run, "--user", "--quiet"]
-                        # Forward essential variables so the terminal can talk to Wayland/X11
-                        for env_var in ["DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY", "KDE_FULL_SESSION", "XDG_CURRENT_DESKTOP"]:
-                            if env_var in os.environ:
-                                prefix.append(f"--setenv={env_var}={os.environ[env_var]}")
-                        # Inject PATH so the systemd service sees our NixOS wrapper path
-                        prefix.append(f"--setenv=PATH={env['PATH']}")
-                        launch_cmd = prefix + launch_cmd
-
-                    print(f"-> Spawning terminal: {term}", flush=True)
-                    subprocess.Popen(launch_cmd, env=env)
-                    return
-                except Exception as e:
-                    print(f"[WARNING] Failed to spawn terminal {term}: {e}", flush=True)
-                    pass
-
-        # 2. Last resort: direct run
         try:
-            print("-> Spawning elevation directly (no terminal found)...", flush=True)
-            subprocess.Popen([elevate_bin] + full_cmd, env=env)
-            return
+            with open("/tmp/pvpn-next-sudo.log", "a") as f:
+                f.write(f"\n--- RUN CLI ELEVATED ---\nCMD: {launch_cmd}\n")
+            
+            import tempfile
+            with tempfile.TemporaryFile() as out_f, tempfile.TemporaryFile() as err_f:
+                proc = subprocess.Popen(launch_cmd, env=env, stdin=subprocess.PIPE, stdout=out_f, stderr=err_f)
+                proc.stdin.write(f"{sudo_password}\n".encode())
+                proc.stdin.close()
+                proc.wait()
+                out_f.seek(0)
+                err_f.seek(0)
+                outs = out_f.read()
+                errs = err_f.read()
+            
+            out_str = outs.decode() if outs else ""
+            err_str = errs.decode() if errs else ""
+
+            with open("/tmp/pvpn-next-sudo.log", "a") as f:
+                f.write(f"Return code: {proc.returncode}\nOUT: {out_str}\nERR: {err_str}\n")
+
+            if proc.returncode != 0:
+                err_lower = err_str.lower()
+                if "incorrect password" in err_lower or "sorry, try again" in err_lower or "authentication failure" in err_lower:
+                    raise Exception("Incorrect password")
+                raise Exception(f"Elevation failed. Exit {proc.returncode}\nOUT:\n{out_str}\nERR:\n{err_str}")
+            
+            return out_str + "\n" + err_str
         except Exception as e:
-            print(f"[ERROR] Final elevation attempt failed: {e}", flush=True)
-            pass
+            raise e
 
     # Windows (UAC)
     subprocess.Popen(full_cmd)
@@ -966,8 +904,13 @@ def vpn_connect():
         status_state["vpn_state"] = "CONNECTING"
         notify_status_change()
 
-        run_cli_elevated(["connect", server])
-        return jsonify({"success": True, "message": f"Connection to {server} initiated."})
+        output = run_cli_elevated(["connect", server], sudo_password=data.get("sudo_password"))
+        msgs = output.splitlines() if output else []
+        return jsonify({"success": True, "message": f"Connection to {server} initiated.", "messages": msgs})
+    except SudoRequiredError:
+        status_state["vpn_state"] = "DISCONNECTED"
+        notify_status_change()
+        return jsonify({"success": False, "requires_password": True}), 401
     except Exception as e:
         status_state["vpn_state"] = "DISCONNECTED"
         notify_status_change()
@@ -986,9 +929,17 @@ def vpn_disconnect():
         status_state["vpn_state"] = "DISCONNECTING"
         notify_status_change()
 
-        run_cli_elevated(["disconnect"])
-        return jsonify({"success": True, "message": "Disconnection initiated."})
+        data = request.json or {}
+        output = run_cli_elevated(["disconnect"], sudo_password=data.get("sudo_password"))
+        msgs = output.splitlines() if output else []
+        return jsonify({"success": True, "message": "Disconnection initiated.", "messages": msgs})
+    except SudoRequiredError:
+        status_state["vpn_state"] = "CONNECTED"  # rollback state
+        notify_status_change()
+        return jsonify({"success": False, "requires_password": True}), 401
     except Exception as e:
+        status_state["vpn_state"] = "UNKNOWN"
+        notify_status_change()
         return jsonify({"success": False, "error": str(e)}), 400
 
 @app.route("/api/logs", methods=["GET"])
