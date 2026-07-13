@@ -115,7 +115,20 @@ def run_cli_elevated(args):
                 return nix_wrapper
             return shutil.which(cmd)
 
-        # 1. Terminal Elevation (Reliable and consistent across distros)
+        elevate_bin = get_best_path("doas") if shutil.which("doas") else (get_best_path("sudo") or "sudo")
+
+        # 1. Try passwordless execution first (Silent check)
+        try:
+            # -n (non-interactive) fails if a password is required
+            check_cmd = [elevate_bin, "-n", "true"]
+            if subprocess.run(check_cmd, env=env, capture_output=True).returncode == 0:
+                print(f"-> Passwordless {elevate_bin} detected, running directly.", flush=True)
+                subprocess.Popen([elevate_bin, "-n"] + full_cmd, env=env)
+                return
+        except Exception:
+            pass
+
+        # 2. Terminal Elevation (Reliable and consistent across distros)
         # We skip GUI tools (run0, pkexec) because they are often unreliable or strip PATH.
         terminals = [
             ("konsole", ["-e"]),
