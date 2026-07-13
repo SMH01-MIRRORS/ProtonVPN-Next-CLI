@@ -243,6 +243,8 @@ class Database:
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         name=excluded.name,
+                        country=excluded.country,
+                        city=excluded.city,
                         tier=excluded.tier,
                         load=excluded.load,
                         raw_json=excluded.raw_json

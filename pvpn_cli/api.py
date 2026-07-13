@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import time
+import urllib.request
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from pvpn_cli.database import Database
@@ -18,6 +19,14 @@ init_sentry()
 
 app = Flask(__name__)
 CORS(app)
+
+# Global location state
+location_state = {
+    "country_code": "",
+    "real_ip": "",
+    "last_check": 0,
+    "lock": threading.Lock()
+}
 
 # Global state for status updates
 status_state = {
@@ -52,6 +61,154 @@ last_status_cache = {
     "data": None,
     "lock": threading.Lock()
 }
+
+def get_country_from_locale():
+    """Extracts country code from system locale."""
+    try:
+        import locale
+        loc, _ = locale.getdefaultlocale()
+        if loc:
+            # Handle formats like 'ru_RU', 'en_US.UTF-8', 'ru'
+            parts = loc.replace(".", "_").split("_")
+            for p in parts:
+                if len(p) == 2 and p.isupper():
+                    return p.upper()
+            # If only language is given (e.g. 'ru'), we can't be 100% sure but 'RU' is a good guess
+            if len(parts[0]) == 2:
+                lang_to_country = {"ru": "RU", "uk": "UA", "be": "BY", "kk": "KZ", "en": "US"}
+                return lang_to_country.get(parts[0].lower())
+    except:
+        pass
+    return None
+
+def get_country_from_timezone():
+    """
+    Tries to guess the country code from the system timezone.
+    Returns ISO country code (e.g. 'US', 'RU') or 'US' as fallback.
+    """
+    try:
+        # 1. Try to read from /etc/timezone (Linux)
+        tz = ""
+        if os.path.exists("/etc/timezone"):
+            with open("/etc/timezone", "r") as f:
+                tz = f.read().strip()
+        # 2. Try to read from symlink /etc/localtime
+        elif os.path.islink("/etc/localtime"):
+            tz = os.path.realpath("/etc/localtime").split("zoneinfo/")[-1]
+
+        if not tz:
+            # Fallback for other systems or if detection fails
+            import time
+            tz = time.tzname[0]
+
+        # Mapping common timezones to country codes
+        # Expanded to include many more regions
+        mapping = {
+            # Russia
+            "Europe/Moscow": "RU", "Europe/Kaliningrad": "RU", "Europe/Samara": "RU",
+            "Europe/Volgograd": "RU", "Europe/Saratov": "RU", "Europe/Ulyanovsk": "RU",
+            "Europe/Astrakhan": "RU", "Europe/Kirov": "RU", "Asia/Yekaterinburg": "RU",
+            "Asia/Omsk": "RU", "Asia/Novosibirsk": "RU", "Asia/Barnaul": "RU",
+            "Asia/Tomsk": "RU", "Asia/Novokuznetsk": "RU", "Asia/Krasnoyarsk": "RU",
+            "Asia/Irkutsk": "RU", "Asia/Chita": "RU", "Asia/Yakutsk": "RU",
+            "Asia/Khandyga": "RU", "Asia/Vladivostok": "RU", "Asia/Ust-Nera": "RU",
+            "Asia/Magadan": "RU", "Asia/Sakhalin": "RU", "Asia/Srednekolymsk": "RU",
+            "Asia/Anadyr": "RU", "Asia/Kamchatka": "RU", "Moscow": "RU", "MSK": "RU",
+
+            # Europe
+            "Europe/London": "GB", "Europe/Dublin": "IE", "Europe/Paris": "FR",
+            "Europe/Berlin": "DE", "Europe/Rome": "IT", "Europe/Madrid": "ES",
+            "Europe/Amsterdam": "NL", "Europe/Brussels": "BE", "Europe/Zurich": "CH",
+            "Europe/Vienna": "AT", "Europe/Warsaw": "PL", "Europe/Prague": "CZ",
+            "Europe/Budapest": "HU", "Europe/Stockholm": "SE", "Europe/Oslo": "NO",
+            "Europe/Copenhagen": "DK", "Europe/Helsinki": "FI", "Europe/Athens": "GR",
+            "Europe/Istanbul": "TR", "Europe/Kiev": "UA", "Europe/Bucharest": "RO",
+            "Europe/Sofia": "BG", "Europe/Belgrade": "RS", "Europe/Bratislava": "SK",
+            "Europe/Ljubljana": "SI", "Europe/Zagreb": "HR", "Europe/Tallinn": "EE",
+            "Europe/Riga": "LV", "Europe/Vilnius": "LT", "Europe/Minsk": "BY",
+            "Europe/Chisinau": "MD", "GMT": "GB", "BST": "GB", "CET": "DE", "EET": "FI",
+
+            # North America
+            "America/New_York": "US", "America/Chicago": "US", "America/Denver": "US",
+            "America/Los_Angeles": "US", "America/Phoenix": "US", "America/Anchorage": "US",
+            "America/Honolulu": "US", "America/Toronto": "CA", "America/Vancouver": "CA",
+            "America/Mexico_City": "MX", "EST": "US", "EDT": "US", "CST": "US", "CDT": "US",
+            "MST": "US", "MDT": "US", "PST": "US", "PDT": "US",
+
+            # Asia
+            "Asia/Tokyo": "JP", "Asia/Seoul": "KR", "Asia/Shanghai": "CN",
+            "Asia/Hong_Kong": "HK", "Asia/Singapore": "SG", "Asia/Dubai": "AE",
+            "Asia/Bangkok": "TH", "Asia/Jakarta": "ID", "Asia/Ho_Chi_Minh": "VN",
+            "Asia/Manila": "PH", "Asia/Kuala_Lumpur": "MY", "Asia/Taipei": "TW",
+            "Asia/Jerusalem": "IL", "Asia/Riyadh": "SA", "Asia/Tehran": "IR",
+
+            # Australia & Oceania
+            "Australia/Sydney": "AU", "Australia/Melbourne": "AU", "Australia/Perth": "AU",
+            "Australia/Brisbane": "AU", "Australia/Adelaide": "AU", "Pacific/Auckland": "NZ",
+
+            # South America
+            "America/Sao_Paulo": "BR", "America/Buenos_Aires": "AR", "America/Santiago": "CL",
+            "America/Bogota": "CO", "America/Lima": "PE"
+        }
+
+        country = mapping.get(tz)
+        if not country:
+            # Try partial match (e.g. if tz is "Europe/Volgograd (MSK+0)")
+            for key in mapping:
+                if key in tz:
+                    return mapping[key]
+
+        return country or get_country_from_locale() or "US"
+    except:
+        return get_country_from_locale() or "US"
+
+def location_tracker():
+    """Background thread to fetch real IP and country code."""
+    last_vpn_state = None
+    while True:
+        try:
+            db = Database()
+            routing_file = os.path.join(db.db_path.replace("protonvpn.db", "routing_state.json"))
+            vpn_active = os.path.exists(routing_file)
+
+            # Force refresh if VPN state changed
+            force = False
+            if vpn_active != last_vpn_state:
+                force = True
+                last_vpn_state = vpn_active
+                # Clear IP immediately on state change to show "..." in UI
+                with location_state["lock"]:
+                    location_state["real_ip"] = ""
+                    location_state["country_code"] = ""
+                notify_status_change()
+                if vpn_active:
+                    time.sleep(2) # Give VPN time to stabilize routing
+
+            # Fetch from ip-api (free, no key required)
+            try:
+                with urllib.request.urlopen("http://ip-api.com/json", timeout=5) as response:
+                    data = json.loads(response.read().decode())
+                    if data.get("status") == "success":
+                        new_ip = data.get("query", "")
+                        new_cc = data.get("countryCode", "US")
+
+                        with location_state["lock"]:
+                            changed = location_state["real_ip"] != new_ip
+                            location_state["country_code"] = new_cc
+                            location_state["real_ip"] = new_ip
+                            location_state["last_check"] = time.time()
+
+                        if changed or force:
+                            notify_status_change()
+            except Exception as e:
+                print(f"[WARNING] IP location fetch failed: {e}", flush=True)
+
+            # Check every 5 minutes when idle, or more often if no data
+            sleep_time = 300 if location_state["country_code"] else 30
+            time.sleep(sleep_time)
+
+        except Exception:
+            time.sleep(60)
 
 def run_cli_elevated(args):
     """
@@ -357,11 +514,18 @@ def get_current_status_dict():
 
         historical = db.get_historical_stats()
 
+        # Fetch location data
+        with location_state["lock"]:
+            country_code = location_state["country_code"]
+            real_ip = location_state["real_ip"] or db.get_setting("current_real_ip", "")
+
         status_data = {
             "logged_in": logged_in,
             "bypass": db.get_setting("api_bypass", "0"),
             "active_server": db.get_setting("active_server_name", ""),
-            "real_ip": db.get_setting("current_real_ip", ""),
+            "real_ip": real_ip,
+            "country_code": country_code,
+            "timezone_country_code": get_country_from_timezone(),
             "max_tier": max_tier,
             "uid": session.get("uid", "N/A") if logged_in else "N/A",
             "has_certificate": session is not None and bool(session.get("wg_private_key")),
@@ -516,7 +680,20 @@ def submit_2fa():
 def fetch_servers():
     api = ProtonVpnApi()
     data = request.get_json(silent=True) or {}
+
+    # Priority: 1. Body param, 2. Accept-Language header, 3. System Locale
     loc = data.get("locale")
+    if not loc:
+        accept_lang = request.headers.get("Accept-Language", "")
+        if accept_lang:
+            loc = accept_lang.split(",")[0].replace("-", "_")
+    if not loc:
+        try:
+            import locale
+            loc, _ = locale.getdefaultlocale()
+        except:
+            loc = "en_US"
+
     print(f"-> Fetching full server list (Locale: {loc})...", flush=True)
     try:
         servers = api.fetch_servers()
@@ -867,6 +1044,10 @@ def run_api_server(port=34115, debug=False):
     # Start traffic tracker
     tracker = threading.Thread(target=traffic_tracker, daemon=True)
     tracker.start()
+
+    # Start location tracker
+    locator = threading.Thread(target=location_tracker, daemon=True)
+    locator.start()
 
     print(f"Starting API Daemon on port {port} (Debug: {debug})...", flush=True)
     app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
