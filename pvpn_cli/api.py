@@ -584,6 +584,25 @@ def login_user_endpoint():
 
     return jsonify({"success": True, "status": login_state["status"]})
 
+@app.route("/api/trigger-captcha", methods=["POST"])
+def trigger_captcha():
+    # Spawns trigger-captcha without --gui so it opens a browser
+    import subprocess, sys
+    try:
+        # We need to run the CLI script directly
+        if getattr(sys, 'frozen', False):
+            # PyInstaller binary
+            cmd = [sys.executable, "trigger-captcha"]
+        else:
+            # Source script
+            cmd = [sys.executable, sys.argv[0], "trigger-captcha"]
+        
+        # We use Popen so it runs in background and doesn't block
+        subprocess.Popen(cmd)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 @app.route("/api/login/status", methods=["GET"])
 def get_login_status():
     global login_state

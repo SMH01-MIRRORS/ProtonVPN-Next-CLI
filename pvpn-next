@@ -1680,6 +1680,8 @@ def run_cli(args_list=None):
         from pvpn_cli.api import run_api_server
         port = getattr(args, 'port', 34115)
         debug = getattr(args, 'debug', False)
+        if getattr(args, 'gui', False):
+            os.environ["PVPN_GUI_MODE"] = "1"
         run_api_server(port=port, debug=debug)
     elif args.command == "trigger-captcha":
         from pvpn_cli.auth import ProtonAuthApi

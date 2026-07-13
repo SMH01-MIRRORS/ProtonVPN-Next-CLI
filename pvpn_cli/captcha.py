@@ -27,6 +27,10 @@ class CaptchaProxyServer:
         self.server = None
 
     def start_and_wait(self, original_web_url):
+        if os.environ.get("PVPN_GUI_MODE") == "1":
+            print("[CAPTCHA] GUI mode detected. Skipping automatic browser opening.")
+            raise Exception("Captcha required. Please run triggerCaptcha() in DevTools to solve.")
+
         sock = socket.socket()
         sock.bind(('127.0.0.1', 0))
         port = sock.getsockname()[1]
