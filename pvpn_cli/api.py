@@ -292,12 +292,8 @@ def traffic_tracker():
                         traffic_state["session_rx"] += delta_rx
                         traffic_state["session_tx"] += delta_tx
 
-                        # Save to historical DB via the daemon's logic or here
-                        # For simplicity, we can do it here every 10 seconds
-                        if int(time.time()) % 10 == 0:
-                             db.update_traffic_stats(delta_rx, delta_tx)
-                        else:
-                             db.update_traffic_stats(delta_rx, delta_tx)
+                        # Update historical DB
+                        db.update_traffic_stats(delta_rx, delta_tx, 1)
 
                     traffic_state["last_abs_rx"] = rx
                     traffic_state["last_abs_tx"] = tx

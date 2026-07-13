@@ -93,9 +93,26 @@ class Database:
                 CREATE TABLE IF NOT EXISTS traffic_stats (
                     date TEXT PRIMARY KEY,
                     rx_bytes INTEGER DEFAULT 0,
-                    tx_bytes INTEGER DEFAULT 0
+                    tx_bytes INTEGER DEFAULT 0,
+                    usage_seconds INTEGER DEFAULT 0
                 )
             """)
+
+            # Granular traffic stats (hourly)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS traffic_stats_hourly (
+                    hour TEXT PRIMARY KEY,
+                    rx_bytes INTEGER DEFAULT 0,
+                    tx_bytes INTEGER DEFAULT 0,
+                    usage_seconds INTEGER DEFAULT 0
+                )
+            """)
+
+            # Add usage_seconds column if it doesn't exist
+            try:
+                cursor.execute("ALTER TABLE traffic_stats ADD COLUMN usage_seconds INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
 
             # Add junk_level column if it doesn't exist (for migration)
             try:
@@ -304,31 +321,50 @@ class Database:
             """, (limit,))
             return [dict(row) for row in cursor.fetchall()]
 
-    def update_traffic_stats(self, rx_delta: int, tx_delta: int):
-        from datetime import date
-        today = date.today().isoformat()
+    def update_traffic_stats(self, rx_delta: int, tx_delta: int, usage_delta: int = 0):
+        from datetime import datetime
+        now = datetime.now()
+        today = now.date().isoformat()
+        hour = now.strftime("%Y-%m-%dT%H:00:00")
+
         with self._get_connection() as conn:
             cursor = conn.cursor()
+            # Update daily stats
             cursor.execute("""
-                INSERT INTO traffic_stats (date, rx_bytes, tx_bytes)
-                VALUES (?, ?, ?)
+                INSERT INTO traffic_stats (date, rx_bytes, tx_bytes, usage_seconds)
+                VALUES (?, ?, ?, ?)
                 ON CONFLICT(date) DO UPDATE SET
                     rx_bytes = rx_bytes + excluded.rx_bytes,
-                    tx_bytes = tx_bytes + excluded.tx_bytes
-            """, (today, rx_delta, tx_delta))
+                    tx_bytes = tx_bytes + excluded.tx_bytes,
+                    usage_seconds = usage_seconds + excluded.usage_seconds
+            """, (today, rx_delta, tx_delta, usage_delta))
+
+            # Update hourly stats
+            cursor.execute("""
+                INSERT INTO traffic_stats_hourly (hour, rx_bytes, tx_bytes, usage_seconds)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(hour) DO UPDATE SET
+                    rx_bytes = rx_bytes + excluded.rx_bytes,
+                    tx_bytes = tx_bytes + excluded.tx_bytes,
+                    usage_seconds = usage_seconds + excluded.usage_seconds
+            """, (hour, rx_delta, tx_delta, usage_delta))
+
+            # Cleanup old hourly stats (keep last 48 hours)
+            cursor.execute("DELETE FROM traffic_stats_hourly WHERE hour < datetime('now', '-48 hours')")
+
             conn.commit()
 
     def get_traffic_stats(self, date_str: str) -> Dict[str, int]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT rx_bytes, tx_bytes FROM traffic_stats WHERE date = ?", (date_str,))
+            cursor.execute("SELECT rx_bytes, tx_bytes, usage_seconds FROM traffic_stats WHERE date = ?", (date_str,))
             row = cursor.fetchone()
             if row:
-                return {"rx": row[0], "tx": row[1]}
-            return {"rx": 0, "tx": 0}
+                return {"rx": row[0], "tx": row[1], "usage": row[2]}
+            return {"rx": 0, "tx": 0, "usage": 0}
 
-    def get_historical_stats(self) -> Dict[str, Dict[str, int]]:
-        from datetime import date, timedelta
+    def get_historical_stats(self) -> Dict[str, Any]:
+        from datetime import date, datetime, timedelta
         import calendar
 
         today = date.today()
@@ -336,25 +372,60 @@ class Database:
         first_of_year = today.replace(month=1, day=1)
 
         with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
             # Today
-            cursor.execute("SELECT rx_bytes, tx_bytes FROM traffic_stats WHERE date = ?", (today.isoformat(),))
+            cursor.execute("SELECT rx_bytes, tx_bytes, usage_seconds FROM traffic_stats WHERE date = ?", (today.isoformat(),))
             t_row = cursor.fetchone()
-            today_stats = {"rx": t_row[0] if t_row else 0, "tx": t_row[1] if t_row else 0}
+            today_stats = {"rx": t_row['rx_bytes'] if t_row else 0, "tx": t_row['tx_bytes'] if t_row else 0, "usage": t_row['usage_seconds'] if t_row else 0}
 
             # Month
-            cursor.execute("SELECT SUM(rx_bytes), SUM(tx_bytes) FROM traffic_stats WHERE date >= ?", (first_of_month.isoformat(),))
+            cursor.execute("SELECT SUM(rx_bytes), SUM(tx_bytes), SUM(usage_seconds) FROM traffic_stats WHERE date >= ?", (first_of_month.isoformat(),))
             m_row = cursor.fetchone()
-            month_stats = {"rx": m_row[0] if m_row[0] else 0, "tx": m_row[1] if m_row[1] else 0}
+            month_stats = {
+                "rx": m_row[0] if m_row and m_row[0] else 0,
+                "tx": m_row[1] if m_row and m_row[1] else 0,
+                "usage": m_row[2] if m_row and m_row[2] else 0
+            }
 
             # Year
-            cursor.execute("SELECT SUM(rx_bytes), SUM(tx_bytes) FROM traffic_stats WHERE date >= ?", (first_of_year.isoformat(),))
+            cursor.execute("SELECT SUM(rx_bytes), SUM(tx_bytes), SUM(usage_seconds) FROM traffic_stats WHERE date >= ?", (first_of_year.isoformat(),))
             y_row = cursor.fetchone()
-            year_stats = {"rx": y_row[0] if y_row[0] else 0, "tx": y_row[1] if y_row[1] else 0}
+            year_stats = {
+                "rx": y_row[0] if y_row and y_row[0] else 0,
+                "tx": y_row[1] if y_row and y_row[1] else 0,
+                "usage": y_row[2] if y_row and y_row[2] else 0
+            }
+
+            # Daily Chart Data (Last 24 hours)
+            cursor.execute("SELECT * FROM traffic_stats_hourly ORDER BY hour DESC LIMIT 24")
+            daily_chart = [dict(row) for row in cursor.fetchall()]
+
+            # Monthly Chart Data (Last 30 days)
+            cursor.execute("SELECT * FROM traffic_stats WHERE date >= ? ORDER BY date DESC LIMIT 30", ((today - timedelta(days=30)).isoformat(),))
+            monthly_chart = [dict(row) for row in cursor.fetchall()]
+
+            # Yearly Chart Data (Last 12 months)
+            # Grouping by month
+            cursor.execute("""
+                SELECT strftime('%Y-%m', date) as month, SUM(rx_bytes) as rx_bytes, SUM(tx_bytes) as tx_bytes, SUM(usage_seconds) as usage_seconds
+                FROM traffic_stats
+                GROUP BY month
+                ORDER BY month DESC
+                LIMIT 12
+            """)
+            yearly_chart = [dict(row) for row in cursor.fetchall()]
 
             return {
-                "today": today_stats,
-                "month": month_stats,
-                "year": year_stats
+                "summary": {
+                    "today": today_stats,
+                    "month": month_stats,
+                    "year": year_stats
+                },
+                "charts": {
+                    "daily": daily_chart[::-1],
+                    "monthly": monthly_chart[::-1],
+                    "yearly": yearly_chart[::-1]
+                }
             }
