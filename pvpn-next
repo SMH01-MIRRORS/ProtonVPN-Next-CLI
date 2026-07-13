@@ -95,7 +95,7 @@ def elevate_if_needed_windows(cmd_args=None):
         print("-> Requesting administrator privileges via UAC...")
         
         args_to_use = cmd_args if cmd_args is not None else sys.argv[1:]
-        config_arg = f"--config-dir={get_config_dir()}"
+        config_arg = f'--config-dir="{get_config_dir()}"'
         
         import tempfile
         import uuid
@@ -104,8 +104,8 @@ def elevate_if_needed_windows(cmd_args=None):
         log_file = os.path.join(tempfile.gettempdir(), f"pvpn_elevate_{log_id}.log")
         open(log_file, "w").close()
         
-        args_to_use = [config_arg, f"--redirect-logs={log_file}"] + args_to_use
-        params = ' '.join([f'"{arg}"' for arg in args_to_use])
+        args_to_use = [config_arg, f'--redirect-logs="{log_file}"'] + args_to_use
+        params = ' '.join([arg if arg.startswith('--') and '"' in arg else f'"{arg}"' for arg in args_to_use])
         
         if getattr(sys, 'frozen', False):
             ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 0)
@@ -764,14 +764,10 @@ def do_connect(server_name: str, awg_str: str):
     import shutil
     
     is_windows = platform.system() == "Windows"
-    elevate_cmd = "sudo"
+    elevate_cmd = ""
     
     if is_windows:
-        args = ["connect", server_name]
-        if awg_str:
-            args.append(f"awg={awg_str}")
         elevate_if_needed_windows(args)
-        elevate_cmd = ""
     else:
         if os.geteuid() != 0:
             args = ["connect", server_name]
@@ -779,13 +775,16 @@ def do_connect(server_name: str, awg_str: str):
                 args.append(f"awg={awg_str}")
             if elevate_command_linux(args):
                 return
-        elif shutil.which("doas"):
-            elevate_cmd = "doas"
-        elif not shutil.which("sudo"):
-            print("[ERROR] Neither sudo nor doas found.")
-            sys.exit(1)
-            
-        print(f"-> You may be prompted for your password by {elevate_cmd}.")
+
+            # If elevate_command_linux failed to return but didn't exit,
+            # we need to know what to use for routing commands
+            elevate_cmd = "doas" if shutil.which("doas") else ("sudo" if shutil.which("sudo") else "")
+        else:
+            # We are already root (e.g. via run0 or manual sudo)
+            elevate_cmd = ""
+
+        if elevate_cmd:
+            print(f"-> You may be prompted for your password by {elevate_cmd}.")
         
     print(f"-> Starting VPN connection to {server_name} ({entry_ip})...")
     
@@ -816,18 +815,17 @@ def do_disconnect():
 
     
     is_windows = platform.system() == "Windows"
-    elevate_cmd = "sudo"
+    elevate_cmd = ""
     
     if is_windows:
         elevate_if_needed_windows(["disconnect"])
-        elevate_cmd = ""
     else:
         if os.geteuid() != 0:
             if elevate_command_linux(["disconnect"]):
                 return
-        elif shutil.which("doas"):
-            elevate_cmd = "doas"
-        elif not shutil.which("sudo"):
+            elevate_cmd = "doas" if shutil.which("doas") else ("sudo" if shutil.which("sudo") else "")
+        else:
+            # Already root
             elevate_cmd = ""
     
     print("-> Disconnecting VPN...")
@@ -837,7 +835,10 @@ def do_disconnect():
     if is_windows:
         subprocess.run(["taskkill", "/F", "/IM", "pvpn-engine.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
     else:
-        subprocess.run([elevate_cmd, "pkill", "-f", "pvpn-engine"])
+        pkill_cmd = ["pkill", "-f", "pvpn-engine"]
+        if elevate_cmd:
+            pkill_cmd = [elevate_cmd] + pkill_cmd
+        subprocess.run(pkill_cmd)
     print("-> VPN disconnected.")
 
 def do_awg_logs():
@@ -1713,7 +1714,7 @@ def main():
             if hwnd:
                 ctypes.windll.user32.ShowWindow(hwnd, 0)
                 
-    if not sys.stdin.isatty() and sys.platform != "win32" and "_daemon" not in sys.argv:
+    if not sys.stdin.isatty() and sys.platform != "win32" and "_daemon" not in sys.argv and "--gui" not in sys.argv:
         import shutil
         terminals = [
             ("gnome-terminal", ["--"]),

@@ -9,10 +9,14 @@ class Database:
         from pvpn_cli.routing import get_config_dir
         config_dir = get_config_dir()
         self.db_path = os.path.join(config_dir, "protonvpn.db")
+        self.timeout = 30
         self._init_db()
 
+    def _get_connection(self):
+        return sqlite3.connect(self.db_path, timeout=self.timeout)
+
     def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             # Sessions table: we only store the active session
             cursor.execute("""
@@ -116,7 +120,7 @@ class Database:
             conn.commit()
 
     def set_setting(self, key: str, value: str):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT OR REPLACE INTO settings (key, value)
@@ -125,7 +129,7 @@ class Database:
             conn.commit()
 
     def get_setting(self, key: str, default: str = None) -> str:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
             row = cursor.fetchone()
@@ -134,7 +138,7 @@ class Database:
             return default
 
     def add_awg_config(self, name: str, params: str, junk_level: int = 3):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO awg_configs (name, params, junk_level)
@@ -146,7 +150,7 @@ class Database:
             conn.commit()
 
     def delete_awg_config(self, identifier: str) -> bool:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             if identifier.isdigit():
                 cursor.execute("DELETE FROM awg_configs WHERE id = ?", (int(identifier),))
@@ -156,14 +160,14 @@ class Database:
             return cursor.rowcount > 0
 
     def get_awg_configs(self) -> List[Dict[str, Any]]:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM awg_configs ORDER BY id ASC")
             return [dict(row) for row in cursor.fetchall()]
 
     def get_awg_config(self, identifier: str) -> Optional[Dict[str, Any]]:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             if identifier.isdigit():
@@ -174,7 +178,7 @@ class Database:
             return dict(row) if row else None
 
     def save_session(self, access_token: str, refresh_token: str, uid: str, user_id: str):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO sessions (id, access_token, refresh_token, uid, user_id, updated_at)
@@ -189,7 +193,7 @@ class Database:
             conn.commit()
 
     def get_session(self) -> Optional[Dict[str, str]]:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM sessions WHERE id = 1")
@@ -199,7 +203,7 @@ class Database:
             return None
 
     def update_certificate(self, wg_private_key: str, wg_certificate: str, expires_at: int, refresh_at: int = 0):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO sessions (id, wg_private_key, wg_certificate, cert_expires_at, cert_refresh_at, updated_at)
@@ -214,7 +218,7 @@ class Database:
             conn.commit()
 
     def save_servers(self, servers_list: List[Dict[str, Any]]):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             for srv in servers_list:
                 cursor.execute("""
@@ -242,7 +246,7 @@ class Database:
             conn.commit()
 
     def update_server_loads(self, loads_list: List[Dict[str, Any]]):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             updated_count = 0
             for item in loads_list:
@@ -256,7 +260,7 @@ class Database:
             print(f"[Database] Updated load for {updated_count} servers.", flush=True)
 
     def update_localized_cities(self, cities_map: Dict[str, Dict[str, str]]):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             for country, city_dict in cities_map.items():
                 for eng_city, loc_city in city_dict.items():
@@ -266,20 +270,20 @@ class Database:
             conn.commit()
 
     def get_server_count(self) -> int:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM servers")
             return cursor.fetchone()[0]
 
     def get_all_servers(self) -> List[Dict[str, Any]]:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM servers ORDER BY country, city, name")
             return [dict(row) for row in cursor.fetchall()]
 
     def add_recent_connection(self, server_id: str):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO recent_connections (id, last_connected)
@@ -289,7 +293,7 @@ class Database:
             conn.commit()
 
     def get_recent_connections(self, limit: int = 5) -> List[Dict[str, Any]]:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("""
@@ -303,7 +307,7 @@ class Database:
     def update_traffic_stats(self, rx_delta: int, tx_delta: int):
         from datetime import date
         today = date.today().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO traffic_stats (date, rx_bytes, tx_bytes)
@@ -315,7 +319,7 @@ class Database:
             conn.commit()
 
     def get_traffic_stats(self, date_str: str) -> Dict[str, int]:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT rx_bytes, tx_bytes FROM traffic_stats WHERE date = ?", (date_str,))
             row = cursor.fetchone()
@@ -331,7 +335,7 @@ class Database:
         first_of_month = today.replace(day=1)
         first_of_year = today.replace(month=1, day=1)
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
 
             # Today
