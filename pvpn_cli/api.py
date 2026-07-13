@@ -187,8 +187,6 @@ Add this line to /etc/doas.conf:
                     # Construct command: Show instructions -> Wait for Enter -> Run sudo/doas -> Wait if error
                     pause_cmd = (
                         f"printf '{safe_instr}\\n\\n'; "
-                        f"echo 'Press ENTER to continue to password prompt...'; "
-                        f"read dummy; "
                         f"{safe_args}; "
                         f"EXIT_CODE=$?; "
                         f"if [ $EXIT_CODE -ne 0 ]; then "
