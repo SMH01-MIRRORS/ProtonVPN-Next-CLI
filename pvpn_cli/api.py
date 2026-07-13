@@ -47,6 +47,12 @@ login_state = {
     "uid": ""
 }
 
+# Cache for last known status to handle DB locks
+last_status_cache = {
+    "data": None,
+    "lock": threading.Lock()
+}
+
 def run_cli_elevated(args):
     """
     Universal Linux Elevation Logic:
@@ -77,9 +83,13 @@ def run_cli_elevated(args):
     full_cmd = base_cmd + [config_arg] + args
 
     if sys.platform == "linux":
-        # Force /run/wrappers/bin into PATH for NixOS to ensure SUID binaries are found
         env = os.environ.copy()
-        env["PATH"] = f"/run/wrappers/bin:{env.get('PATH', '')}"
+
+        # 1. Force a robust PATH for NixOS and other distros when elevating.
+        # GUI elevation tools (run0, pkexec) ruthlessly strip PATH, causing pkill/ip/wg to fail.
+        robust_path = "/run/wrappers/bin:/run/current-system/sw/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        env_path = f"{robust_path}:{env.get('PATH', '')}"
+        env["PATH"] = env_path
 
         # CHECK FOR LINUX SANDBOX (NO_NEW_PRIVS)
         def is_sandboxed():
@@ -105,33 +115,8 @@ def run_cli_elevated(args):
                 return nix_wrapper
             return shutil.which(cmd)
 
-        # 1. Try GUI tools first (Standard for most distros)
-        # We do NOT use systemd-run for GUI tools. Polkit needs the current session context!
-        is_kde = os.environ.get("KDE_FULL_SESSION") == "true" or "plasma" in os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
-        gui_preference = ["kdesu", "pkexec"] if is_kde else ["pkexec", "kdesu"]
-
-        for tool in gui_preference:
-            path = get_best_path(tool)
-            if path:
-                try:
-                    print(f"-> Trying GUI elevation: {tool}", flush=True)
-                    proc = subprocess.Popen([path] + full_cmd, env=env)
-
-                    # Wait briefly to see if it crashes immediately
-                    try:
-                        proc.wait(timeout=0.5)
-                        if proc.returncode != 0:
-                            print(f"[WARNING] {tool} exited immediately with code {proc.returncode}. Trying next...", flush=True)
-                            continue # Try the next GUI tool or fallback
-                        return # Successfully executed
-                    except subprocess.TimeoutExpired:
-                        return
-                except Exception as e:
-                    print(f"[WARNING] Failed to run {tool}: {e}", flush=True)
-                    pass
-
-        # 2. Terminal Fallback (Reliable for both sudo and doas)
-        print("-> GUI elevation failed or missing, falling back to Terminal...", flush=True)
+        # 1. Terminal Elevation (Reliable and consistent across distros)
+        # We skip GUI tools (run0, pkexec) because they are often unreliable or strip PATH.
         terminals = [
             ("konsole", ["-e"]),
             ("kitty", ["--"]),
@@ -142,17 +127,63 @@ def run_cli_elevated(args):
             ("xterm", ["-e"])
         ]
 
-        elevate_bin = get_best_path("sudo") or "sudo"
+        elevate_bin = get_best_path("doas") if shutil.which("doas") else (get_best_path("sudo") or "sudo")
+        user = os.environ.get("SUDO_USER", os.environ.get("USER", "your_user"))
+
+        # Detailed instructions for the user
+        instructions = f"""
+=== HOW TO ENABLE PASSWORDLESS VPN ===
+To connect or disconnect without entering your password every time,
+you can add a rule to your privilege escalation tool.
+
+--- Standard Distros (Ubuntu, Arch, Fedora, etc.) ---
+Run this command in your terminal:
+  echo '{user} ALL=(ALL) NOPASSWD: {binary_path}' | sudo tee /etc/sudoers.d/pvpn-next
+
+--- NixOS (Add to /etc/nixos/configuration.nix) ---
+security.sudo.extraRules = [
+  {{
+    groups = [ "wheel" ];
+    commands = [
+      {{
+        command = "{binary_path}";
+        options = [ "NOPASSWD" ];
+      }}
+    ];
+  }}
+];
+
+(Or if using doas on NixOS):
+security.doas.extraRules = [
+  {{ groups = [ "wheel" ]; noPass = true; cmd = "{binary_path}"; }}
+];
+
+--- doas users (e.g. Alpine, OpenBSD) ---
+Add this line to /etc/doas.conf:
+  permit nopass {user} as root cmd {binary_path}
+=======================================
+"""
+        # Escape single quotes for the shell command
+        safe_instr = instructions.replace("'", "'\\''").strip()
+        safe_args = " ".join([f"'{c}'" for c in [elevate_bin] + full_cmd])
 
         for term, term_args in terminals:
             term_path = shutil.which(term)
             if term_path:
                 try:
-                    # Construct command string
-                    safe_args = " ".join([f"'{c}'" for c in [elevate_bin] + full_cmd])
-
-                    # Add a pause if the command fails, so the terminal stays open and you can read the error!
-                    pause_cmd = f"{safe_args}; EXIT_CODE=$?; if [ $EXIT_CODE -ne 0 ]; then echo ''; echo '=== ERROR ==='; echo 'Command failed with exit code '$EXIT_CODE; echo 'Press ENTER to close this window...'; read dummy; fi"
+                    # Construct command: Show instructions -> Wait for Enter -> Run sudo/doas -> Wait if error
+                    pause_cmd = (
+                        f"printf '{safe_instr}\\n\\n'; "
+                        f"echo 'Press ENTER to continue to password prompt...'; "
+                        f"read dummy; "
+                        f"{safe_args}; "
+                        f"EXIT_CODE=$?; "
+                        f"if [ $EXIT_CODE -ne 0 ]; then "
+                        f"echo ''; echo '=== ERROR ==='; "
+                        f"echo 'Command failed with exit code '$EXIT_CODE; "
+                        f"echo 'Press ENTER to close this window...'; read dummy; "
+                        f"fi"
+                    )
 
                     launch_cmd = [term_path] + term_args + ["sh", "-c", pause_cmd]
 
@@ -174,11 +205,13 @@ def run_cli_elevated(args):
                     print(f"[WARNING] Failed to spawn terminal {term}: {e}", flush=True)
                     pass
 
-        # 3. Last resort: direct run
+        # 2. Last resort: direct run
         try:
+            print("-> Spawning elevation directly (no terminal found)...", flush=True)
             subprocess.Popen([elevate_bin] + full_cmd, env=env)
             return
-        except:
+        except Exception as e:
+            print(f"[ERROR] Final elevation attempt failed: {e}", flush=True)
             pass
 
     # Windows (UAC)
@@ -281,59 +314,76 @@ def traffic_tracker():
         time.sleep(1)
 
 def get_current_status_dict():
-    db = Database()
-    session = db.get_session()
-    logged_in = session is not None and "access_token" in session
+    try:
+        db = Database()
+        session = db.get_session()
+        logged_in = session is not None and "access_token" in session
 
-    max_tier = 0
-    if logged_in:
-        try:
-            max_tier_str = db.get_setting("max_tier", "0")
-            if max_tier_str == "0":
-                api = ProtonVpnApi()
-                max_tier = api.get_max_tier()
-                db.set_setting("max_tier", str(max_tier))
-            else:
-                max_tier = int(max_tier_str)
-        except Exception:
-            max_tier = 0
+        max_tier = 0
+        if logged_in:
+            try:
+                max_tier_str = db.get_setting("max_tier", "0")
+                if max_tier_str == "0":
+                    api = ProtonVpnApi()
+                    max_tier = api.get_max_tier()
+                    db.set_setting("max_tier", str(max_tier))
+                else:
+                    max_tier = int(max_tier_str)
+            except Exception:
+                max_tier = 0
 
-    routing_file = os.path.join(db.db_path.replace("protonvpn.db", "routing_state.json"))
-    vpn_active = os.path.exists(routing_file)
+        routing_file = os.path.join(db.db_path.replace("protonvpn.db", "routing_state.json"))
+        vpn_active = os.path.exists(routing_file)
 
-    # Logic for current state
-    current_state = status_state["vpn_state"]
-    if current_state not in ["CONNECTING", "DISCONNECTING"]:
-        current_state = "CONNECTED" if vpn_active else "DISCONNECTED"
+        # Logic for current state
+        current_state = status_state["vpn_state"]
+        if current_state not in ["CONNECTING", "DISCONNECTING"]:
+            current_state = "CONNECTED" if vpn_active else "DISCONNECTED"
 
-    # Fetch traffic stats
-    traffic = {
-        "speed_rx": traffic_state["speed_rx"],
-        "speed_tx": traffic_state["speed_tx"],
-        "session_rx": traffic_state["session_rx"],
-        "session_tx": traffic_state["session_tx"]
-    }
+        # Fetch traffic stats
+        traffic = {
+            "speed_rx": traffic_state["speed_rx"],
+            "speed_tx": traffic_state["speed_tx"],
+            "session_rx": traffic_state["session_rx"],
+            "session_tx": traffic_state["session_tx"]
+        }
 
-    historical = db.get_historical_stats()
+        historical = db.get_historical_stats()
 
-    return {
-        "logged_in": logged_in,
-        "bypass": db.get_setting("api_bypass", "0"),
-        "active_server": db.get_setting("active_server_name", ""),
-        "real_ip": db.get_setting("current_real_ip", ""),
-        "max_tier": max_tier,
-        "uid": session.get("uid", "N/A") if logged_in else "N/A",
-        "has_certificate": session is not None and bool(session.get("wg_private_key")),
-        "vpn_state": current_state,
-        "server_count": db.get_server_count(),
-        "last_refresh": db.get_setting("last_server_fetch", "Never"),
-        "locale": (locale.getdefaultlocale()[0] or "en_US") if hasattr(locale, 'getdefaultlocale') else "en_US",
-        "traffic": traffic,
-        "stats": historical,
-        "traffic_stats_enabled": db.get_setting("traffic_stats_enabled", "true") == "true",
-        "default_connect_strategy": db.get_setting("default_connect_strategy", "best"),
-        "default_connect_server": db.get_setting("default_connect_server", "")
-    }
+        status_data = {
+            "logged_in": logged_in,
+            "bypass": db.get_setting("api_bypass", "0"),
+            "active_server": db.get_setting("active_server_name", ""),
+            "real_ip": db.get_setting("current_real_ip", ""),
+            "max_tier": max_tier,
+            "uid": session.get("uid", "N/A") if logged_in else "N/A",
+            "has_certificate": session is not None and bool(session.get("wg_private_key")),
+            "vpn_state": current_state,
+            "server_count": db.get_server_count(),
+            "last_refresh": db.get_setting("last_server_fetch", "Never"),
+            "locale": (locale.getdefaultlocale()[0] or "en_US") if hasattr(locale, 'getdefaultlocale') else "en_US",
+            "traffic": traffic,
+            "stats": historical,
+            "traffic_stats_enabled": db.get_setting("traffic_stats_enabled", "true") == "true",
+            "default_connect_strategy": db.get_setting("default_connect_strategy", "best"),
+            "default_connect_server": db.get_setting("default_connect_server", "")
+        }
+
+        with last_status_cache["lock"]:
+            last_status_cache["data"] = status_data
+
+        return status_data
+    except Exception as e:
+        print(f"[WARNING] get_current_status_dict failed (likely DB lock): {e}", flush=True)
+        with last_status_cache["lock"]:
+            if last_status_cache["data"]:
+                return last_status_cache["data"]
+        # Fallback if no cache
+        return {
+            "logged_in": False,
+            "vpn_state": "UNKNOWN",
+            "error": "Database is temporarily busy"
+        }
 
 @app.route("/api/status", methods=["GET"])
 def get_status():
