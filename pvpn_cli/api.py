@@ -914,7 +914,22 @@ def vpn_connect():
         db.add_recent_connection(server)
         print(f"-> GUI Connection request: {server}", flush=True)
 
-        status_state["vpn_state"] = "CONNECTING"
+        with status_state["lock"]:
+            was_connected = status_state["vpn_state"] == "CONNECTED"
+            if was_connected:
+                status_state["vpn_state"] = "DISCONNECTING"
+        
+        if was_connected:
+            notify_status_change()
+            print(f"-> Active connection found, disconnecting first...", flush=True)
+            try:
+                run_cli_elevated(["disconnect"], sudo_password=data.get("sudo_password"))
+            except Exception as de:
+                print(f"[WARNING] Disconnect before reconnect failed: {de}", flush=True)
+
+        with status_state["lock"]:
+            status_state["vpn_state"] = "CONNECTING"
+            
         notify_status_change()
 
         output = run_cli_elevated(["connect", server], sudo_password=data.get("sudo_password"))

@@ -87,7 +87,7 @@ from pvpn_cli.auth import ProtonAuthApi
 from pvpn_cli.vpn import ProtonVpnApi
 from pvpn_cli.database import Database
 
-def elevate_if_needed_windows(cmd_args=None):
+def elevate_if_needed_windows(cmd_args=None, exit_on_success=True):
     if platform.system() != "Windows":
         return
     import ctypes
@@ -133,7 +133,11 @@ def elevate_if_needed_windows(cmd_args=None):
                 os.remove(log_file)
             except:
                 pass
-        sys.exit(0)
+        
+        if exit_on_success:
+            sys.exit(0)
+        else:
+            return True # Returned to let caller know elevation happened and completed
 
 def do_guest_login():
     print("Initiating PVPN Guest Login...")
@@ -640,7 +644,7 @@ def do_connect(server_name: str, awg_str: str):
     routing_file = os.path.join(get_config_dir(), "routing_state.json")
     if os.path.exists(routing_file):
         print(f"{Colors.WARNING}-> Detecting previous crash state. Attempting auto-recovery before connecting...{Colors.ENDC}")
-        do_disconnect()
+        do_disconnect(exit_on_success=False)
     
     server_json = vpn.get_server_by_name(server_name)
     if not server_json:
@@ -811,7 +815,7 @@ def do_connect(server_name: str, awg_str: str):
         print("\nCancelled.")
         sys.exit(0)
 
-def do_disconnect():
+def do_disconnect(exit_on_success=True):
     import subprocess
     import shutil
     import platform
@@ -821,7 +825,7 @@ def do_disconnect():
     elevate_cmd = ""
     
     if is_windows:
-        elevate_if_needed_windows(["disconnect"])
+        elevate_if_needed_windows(["disconnect"], exit_on_success=exit_on_success)
     else:
         if os.geteuid() != 0:
             if elevate_command_linux(["disconnect"]):
@@ -834,7 +838,8 @@ def do_disconnect():
     print("-> Disconnecting VPN...", flush=True)
     from pvpn_cli.routing import RoutingManager, get_config_dir
     print(f"-> Config dir is {get_config_dir()}", flush=True)
-    print(f"-> UID is {os.geteuid()}, SUDO_USER is {os.environ.get('SUDO_USER')}", flush=True)
+    uid = os.geteuid() if hasattr(os, 'geteuid') else 'N/A'
+    print(f"-> UID is {uid}, SUDO_USER is {os.environ.get('SUDO_USER')}", flush=True)
     RoutingManager(elevate_cmd).teardown_routing()
     
     import socket
