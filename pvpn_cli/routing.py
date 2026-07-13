@@ -151,6 +151,7 @@ class RoutingManager:
             s.connect(("127.0.0.1", 34116))
             with open(config_path, "r") as f:
                 s.sendall(f.read().encode("utf-8"))
+            s.shutdown(socket.SHUT_WR)
             if "OK" in s.recv(1024).decode():
                 engine_running = True
             s.close()

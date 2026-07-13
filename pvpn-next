@@ -840,6 +840,7 @@ def do_disconnect():
         s.settimeout(1.0)
         s.connect(("127.0.0.1", 34116))
         s.sendall(b"DISCONNECT\n")
+        s.shutdown(socket.SHUT_WR)
         s.recv(1024)
         s.close()
         print("-> IPC disconnect sent.", flush=True)
