@@ -144,6 +144,20 @@ class RoutingManager:
         exclude_lan = split_cfg.get("exclude_lan", False)
         dns_list = [ip.strip() for ip in dns_ips.split(",") if ip.strip()]
         
+        engine_running = False
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(0.5)
+            s.connect(("127.0.0.1", 34116))
+            with open(config_path, "r") as f:
+                s.sendall(f.read().encode("utf-8"))
+            if "OK" in s.recv(1024).decode():
+                engine_running = True
+            s.close()
+            print("-> Dynamic engine update via IPC successful.")
+        except Exception:
+            pass
+        
         state = {"vpn_ip": vpn_ip, "gw": None, "iface": None, "os": sys.platform, "ips": exclude_ips, "exclude_lan": exclude_lan, "cgroup_created": False, "dns_list": dns_list}
         
         if self.is_windows:
@@ -187,7 +201,8 @@ class RoutingManager:
                     except:
                         pass
                 
-                proc = subprocess.Popen([engine_path, "-dns", dns_ips], **kwargs)
+                if not engine_running:
+                    proc = subprocess.Popen([engine_path, "-dns", dns_ips], **kwargs)
                 
                 iface_idx = None
                 for _ in range(15):
@@ -306,8 +321,9 @@ for ip in $PHYSICAL_DNS; do
 done
 """
                     
+            engine_cmd = f'nohup {engine_path} -dns "{dns_ips}" < "{config_path}" > "{log_path}" 2> "{client_log_path}" &' if not engine_running else ""
             script = f"""
-nohup {engine_path} -dns "{dns_ips}" < "{config_path}" > "{log_path}" 2> "{client_log_path}" &
+{engine_cmd}
 # Wait for interface
 for i in $(seq 1 30); do
     ip link show {awg_iface} >/dev/null 2>&1 && break

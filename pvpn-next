@@ -832,13 +832,24 @@ def do_disconnect():
     from pvpn_cli.routing import RoutingManager
     RoutingManager(elevate_cmd).teardown_routing()
     
-    if is_windows:
-        subprocess.run(["taskkill", "/F", "/IM", "pvpn-engine.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
-    else:
-        pkill_cmd = ["pkill", "-f", "pvpn-engine"]
-        if elevate_cmd:
-            pkill_cmd = [elevate_cmd] + pkill_cmd
-        subprocess.run(pkill_cmd)
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1.0)
+        s.connect(("127.0.0.1", 34116))
+        s.sendall(b"DISCONNECT\n")
+        s.recv(1024)
+        s.close()
+    except Exception:
+        # Fallback if engine is unresponsive
+        if is_windows:
+            subprocess.run(["taskkill", "/F", "/IM", "pvpn-engine.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
+        else:
+            pkill_cmd = ["pkill", "-f", "pvpn-engine"]
+            if elevate_cmd:
+                pkill_cmd = [elevate_cmd] + pkill_cmd
+            subprocess.run(pkill_cmd)
+            
     print("-> VPN disconnected.")
 
 def do_awg_logs():

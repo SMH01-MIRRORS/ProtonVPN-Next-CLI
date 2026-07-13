@@ -917,6 +917,10 @@ def get_recent_connections():
 @app.route("/api/vpn/connect", methods=["POST"])
 def vpn_connect():
     """Trigger VPN connect via the CLI connect logic."""
+    with status_state["lock"]:
+        if status_state["vpn_state"] in ["CONNECTING", "DISCONNECTING"]:
+            return jsonify({"success": False, "error": "Connection action already in progress"}), 400
+
     data = request.json or {}
     server = data.get("server")
     if not server:
@@ -972,6 +976,10 @@ def vpn_connect():
 @app.route("/api/vpn/disconnect", methods=["POST"])
 def vpn_disconnect():
     """Trigger VPN disconnect via the CLI disconnect logic."""
+    with status_state["lock"]:
+        if status_state["vpn_state"] in ["CONNECTING", "DISCONNECTING"]:
+            return jsonify({"success": False, "error": "Connection action already in progress"}), 400
+
     try:
         print(f"-> GUI Disconnect request", flush=True)
 

@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -71,6 +73,50 @@ func main() {
 	dev.Up()
 	fmt.Fprintf(os.Stderr, "[Engine] VPN Tunnel is UP and running.\n")
 	setupDNSFirewall(tdev, *dnsServers)
+
+	// Start IPC Listener
+	go func() {
+		l, err := net.Listen("tcp", "127.0.0.1:34116")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to listen on IPC port: %v\n", err)
+			return
+		}
+		defer l.Close()
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				continue
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				data, err := io.ReadAll(conn)
+				if err != nil {
+					return
+				}
+				configStr := string(data)
+				if strings.TrimSpace(configStr) == "DISCONNECT" {
+					dev.Down()
+					fmt.Fprintf(os.Stderr, "[Engine] Interface marked DOWN via IPC.\n")
+					conn.Write([]byte("OK\n"))
+					return
+				}
+				
+				// Apply new config
+				uapi := configToUapi(configStr)
+				uapi = "replace_peers=true\n" + uapi
+				
+				dev.Down() 
+				if err := dev.IpcSet(uapi); err != nil {
+					fmt.Fprintf(os.Stderr, "IPC config update failed: %v\n", err)
+					conn.Write([]byte("ERROR: " + err.Error() + "\n"))
+					return
+				}
+				dev.Up()
+				fmt.Fprintf(os.Stderr, "[Engine] Configuration updated via IPC. Interface UP.\n")
+				conn.Write([]byte("OK\n"))
+			}(c)
+		}
+	}()
 
 	// Wait for termination signal
 	sigChan := make(chan os.Signal, 1)
