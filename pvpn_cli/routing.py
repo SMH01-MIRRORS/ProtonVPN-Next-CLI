@@ -322,9 +322,8 @@ for ip in $PHYSICAL_DNS; do
 done
 """
                     
-            engine_cmd = f'nohup {engine_path} -dns "{dns_ips}" < "{config_path}" > "{log_path}" 2> "{client_log_path}" &' if not engine_running else ""
+            engine_cmd = f'ip link delete {awg_iface} 2>/dev/null || true\nnohup {engine_path} -dns "{dns_ips}" < "{config_path}" > "{log_path}" 2> "{client_log_path}" &' if not engine_running else ""
             script = f"""
-ip link delete {awg_iface} 2>/dev/null || true
 {engine_cmd}
 # Wait for interface
 for i in $(seq 1 30); do
