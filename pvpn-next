@@ -1343,7 +1343,6 @@ def ensure_daemon_running():
                 pid = int(f.read().strip())
             try:
                 if platform.system() == "Windows":
-                    import subprocess
                     output = subprocess.check_output(f'tasklist /FI "PID eq {pid}"', shell=True, text=True, creationflags=0x08000000)
                     if str(pid) in output:
                         is_running = True
@@ -1851,7 +1850,16 @@ def main():
             except Exception as e:
                 print(f"[ERROR] {e}")
     else:
-        run_cli(sys.argv[1:])
+        try:
+            run_cli(sys.argv[1:])
+        except SystemExit:
+            pass
+        except KeyboardInterrupt:
+            pass
+        except BaseException:
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()
