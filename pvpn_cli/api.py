@@ -431,6 +431,21 @@ def get_current_status_dict():
         routing_file = os.path.join(db.db_path.replace("protonvpn.db", "routing_state.json"))
         vpn_active = os.path.exists(routing_file)
 
+        if vpn_active:
+            import psutil
+            import sys
+            engine_running = False
+            engine_name = "pvpn-engine.exe" if sys.platform == "win32" else "pvpn-engine"
+            for proc in psutil.process_iter(['name']):
+                try:
+                    if proc.info['name'] and engine_name in proc.info['name'].lower():
+                        engine_running = True
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    pass
+            if not engine_running:
+                vpn_active = False
+
         # Logic for current state
         current_state = status_state["vpn_state"]
         if current_state not in ["CONNECTING", "DISCONNECTING"]:

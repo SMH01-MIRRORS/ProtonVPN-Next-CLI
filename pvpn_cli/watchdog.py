@@ -42,7 +42,9 @@ class Watchdog:
 
         # Install via schtasks
         task_name = "PVPN-Next-Watchdog"
-        # We delete it first in case it exists to recreate it with potentially updated paths
+        # We kill existing process and end task in case it exists to prevent process leaks
+        subprocess.run(["taskkill", "/F", "/IM", "pvpn-watchdog.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
+        subprocess.run(["schtasks", "/End", "/TN", task_name], capture_output=True, creationflags=0x08000000)
         subprocess.run(["schtasks", "/Delete", "/TN", task_name, "/F"], capture_output=True, creationflags=0x08000000)
         
         # Create the task to run on login with highest privileges (Admin)

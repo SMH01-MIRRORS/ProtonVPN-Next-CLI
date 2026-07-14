@@ -1342,9 +1342,15 @@ def ensure_daemon_running():
             with open(daemon_pid_path, "r") as f:
                 pid = int(f.read().strip())
             try:
-                os.kill(pid, 0)
-                is_running = True
-            except OSError:
+                if platform.system() == "Windows":
+                    import subprocess
+                    output = subprocess.check_output(f'tasklist /FI "PID eq {pid}"', shell=True, text=True, creationflags=0x08000000)
+                    if str(pid) in output:
+                        is_running = True
+                else:
+                    os.kill(pid, 0)
+                    is_running = True
+            except Exception:
                 pass
         except Exception:
             pass
