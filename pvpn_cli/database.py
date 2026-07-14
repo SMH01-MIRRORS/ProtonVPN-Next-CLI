@@ -244,7 +244,7 @@ class Database:
                     ON CONFLICT(id) DO UPDATE SET
                         name=excluded.name,
                         country=excluded.country,
-                        city=excluded.city,
+                        city=COALESCE((SELECT NULLIF(city, json_extract(raw_json, '$.City')) FROM servers WHERE id=excluded.id), excluded.city),
                         tier=excluded.tier,
                         load=excluded.load,
                         raw_json=excluded.raw_json

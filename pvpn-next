@@ -425,6 +425,7 @@ def do_fetch_locale(locale: str):
         cities_map = response.get("Cities", {})
         db = Database()
         db.update_localized_cities(cities_map)
+        db.set_setting("locale", locale)
         print("[SUCCESS] Localized cities downloaded and saved to database.")
     except Exception as e:
         print(f"[ERROR] Failed to fetch localized locations: {e}")
@@ -1307,9 +1308,16 @@ def do_autosetup(proxy_override=None):
     import locale
     lang = "en"
     try:
-        loc = locale.getlocale()[0]
-        if loc:
-            lang = loc.split('_')[0]
+        import sys
+        if sys.platform == 'win32':
+            import ctypes
+            win_lang = locale.windows_locale.get(ctypes.windll.kernel32.GetUserDefaultUILanguage())
+            if win_lang:
+                lang = win_lang.split('_')[0]
+        else:
+            loc = locale.getlocale()[0]
+            if loc:
+                lang = loc.split('_')[0]
     except Exception:
         pass
     

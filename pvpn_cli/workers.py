@@ -15,6 +15,7 @@ class BackgroundWorkers:
         self.SERVER_FETCH_INTERVAL = 120 * 60  # 2 hours
         self.LOAD_FETCH_INTERVAL = 15 * 60    # 15 minutes
         self.SESSION_REFRESH_INTERVAL = 12 * 60 * 60  # 12 hours
+        self.LOCALE_FETCH_INTERVAL = 7 * 24 * 60 * 60 # 7 days
         self.LOOP_DELAY = 60  # Check every minute
 
     def _should_run(self, key: str, interval: int) -> bool:
@@ -55,6 +56,20 @@ class BackgroundWorkers:
             print("[Daemon] Session successfully refreshed.")
         except Exception as e:
             print(f"[Daemon] [ERROR] Session update failed with error: {e}")
+
+    def sync_locale(self):
+        try:
+            loc = self.db.get_setting("locale")
+            if not loc:
+                return
+            print(f"[Daemon] Starting locale sync for '{loc}'...")
+            city_names = self.api.fetch_locale(loc)
+            if city_names and city_names.get("Code") == 1000:
+                self.db.update_localized_cities(city_names.get("Cities", {}))
+                self._mark_run("last_locale_fetch")
+                print("[Daemon] Successfully updated localized cities.")
+        except Exception as e:
+            print(f"[Daemon] [ERROR] Locale sync failed: {e}")
 
     def check_certificate(self, force=False):
         session = self.db.get_session()
@@ -135,6 +150,10 @@ class BackgroundWorkers:
                 # Check session
                 if self._should_run("last_session_refresh", self.SESSION_REFRESH_INTERVAL):
                     self.refresh_session()
+                    
+                # Check locale
+                if self._should_run("last_locale_fetch", self.LOCALE_FETCH_INTERVAL):
+                    self.sync_locale()
                     
                 # Check certificate (dynamically based on DB value)
                 self.check_certificate()
