@@ -654,6 +654,7 @@ def fetch_servers():
                 if city_names and city_names.get("Code") == 1000:
                     db = Database()
                     db.update_localized_cities(city_names.get("Cities", {}))
+                    db.set_setting("locale", loc)
                     print(f"-> Localized city names updated for: {loc}", flush=True)
             except Exception as le:
                 print(f"[WARNING] Failed to fetch localized city names: {le}", flush=True)
