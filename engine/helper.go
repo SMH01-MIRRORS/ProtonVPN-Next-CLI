@@ -74,6 +74,10 @@ func main() {
 	fmt.Fprintf(os.Stderr, "[Engine] VPN Tunnel is UP and running.\n")
 	setupDNSFirewall(tdev, *dnsServers)
 
+	// Wait for termination signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+
 	// Start IPC Listener
 	go func() {
 		l, err := net.Listen("tcp", "127.0.0.1:34116")
@@ -98,6 +102,7 @@ func main() {
 					dev.Down()
 					fmt.Fprintf(os.Stderr, "[Engine] Interface marked DOWN via IPC.\n")
 					conn.Write([]byte("OK\n"))
+					sigChan <- syscall.SIGTERM
 					return
 				}
 				
@@ -117,10 +122,6 @@ func main() {
 			}(c)
 		}
 	}()
-
-	// Wait for termination signal
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
 
 	<-sigChan
 	fmt.Fprintf(os.Stderr, "[Engine] Shutting down VPN helper...\n")
