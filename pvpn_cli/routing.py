@@ -48,7 +48,7 @@ class RoutingManager:
             return [self.elevate_cmd] + cmd
         return cmd
 
-    def _run_cmd(self, cmd: list) -> str:
+    def _run_cmd(self, cmd: list, silent: bool = False) -> str:
         try:
             kwargs = {"check": True, "capture_output": True, "text": True, "errors": "ignore"}
             if self.is_windows:
@@ -56,8 +56,9 @@ class RoutingManager:
             result = subprocess.run(cmd, **kwargs)
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:
-            print(f"[ERROR] Command failed: {' '.join(cmd)}")
-            print(f"Error output: {e.stderr}")
+            if not silent:
+                print(f"[ERROR] Command failed: {' '.join(cmd)}")
+                print(f"Error output: {e.stderr}")
             return ""
 
     def _get_linux_default_gateway(self) -> tuple[Optional[str], Optional[str]]:
@@ -231,7 +232,7 @@ class RoutingManager:
                     self._run_cmd(["route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", "0.0.0.0", "IF", iface_idx])
                     
                     try:
-                        self._run_cmd(["netsh", "interface", "ipv6", "add", "route", "::/0", awg_iface, "metric=1"])
+                        self._run_cmd(["netsh", "interface", "ipv6", "add", "route", "::/0", awg_iface, "metric=1"], silent=True)
                     except:
                         pass
                     

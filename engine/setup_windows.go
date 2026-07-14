@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"time"
 
 	"pvpn-engine/wfp"
 
@@ -25,20 +26,24 @@ func setupInterface(ifaceName string, addr string) error {
 		mask = "255.255.255.0"
 	}
 
-	// On Windows, use netsh to configure the Wintun adapter IP
-	cmd := exec.Command("netsh", "interface", "ipv4", "set", "address",
-		fmt.Sprintf("name=%s", ifaceName),
-		"static", ip, mask)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("netsh failed to set address: %s (%v)", string(output), err)
+	var err error
+	var output []byte
+	
+	// Retry loop: Wintun interface might take a few seconds to register with Windows Networking
+	for i := 0; i < 20; i++ {
+		cmd := exec.Command("netsh", "interface", "ipv4", "set", "address",
+			fmt.Sprintf("name=%s", ifaceName),
+			"static", ip, mask)
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			
+		output, err = cmd.CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 	
-	// netsh interface ipv4 set subinterface "name" mtu=1280 store=persistent
-	// This is typically optional but good practice if we want to enforce MTU.
-	return nil
+	return fmt.Errorf("netsh failed to set address after retries: %s (%v)", string(output), err)
 }
 
 func setupDNSFirewall(tdev tun.Device, dnsList string) {
