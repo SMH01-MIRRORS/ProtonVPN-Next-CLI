@@ -321,7 +321,7 @@ def run_cli_elevated(args, sudo_password=None):
             raise e
 
     # Windows (UAC)
-    subprocess.Popen(full_cmd)
+    subprocess.Popen(full_cmd, creationflags=0x08000000)
 
 @app.route("/api/events")
 def events():

@@ -104,6 +104,8 @@ def elevate_if_needed_windows(cmd_args=None, exit_on_success=True):
         log_file = os.path.join(tempfile.gettempdir(), f"pvpn_elevate_{log_id}.log")
         open(log_file, "w").close()
         
+        if os.environ.get("PVPN_GUI_MODE") == "1":
+            args_to_use = ['--gui-mode'] + args_to_use
         args_to_use = [config_arg, f'--redirect-logs="{log_file}"'] + args_to_use
         params = ' '.join([arg if arg.startswith('--') and '"' in arg else f'"{arg}"' for arg in args_to_use])
         
@@ -117,12 +119,20 @@ def elevate_if_needed_windows(cmd_args=None, exit_on_success=True):
             sys.exit(1)
             
         try:
+            timeout_time = time.time() + 60
             with open(log_file, "r") as f:
                 while True:
                     line = f.readline()
                     if not line:
+                        if time.time() > timeout_time:
+                            print("\n[ERROR] Elevated process timed out or crashed.", end="")
+                            break
                         time.sleep(0.1)
                         continue
+                        
+                    # Reset timeout when we receive data
+                    timeout_time = time.time() + 60
+                    
                     if line.strip() == "===EOF===":
                         break
                     print(line, end="")
@@ -1419,8 +1429,9 @@ def do_set_default_connect(strategy: str, server: str = None):
 def run_cli(args_list=None):
     fix_config_permissions()
     parser = argparse.ArgumentParser(description="PVPN Next CLI")
-    parser.add_argument("--config-dir", type=str, help=argparse.SUPPRESS)
+    parser.add_argument("--config-dir", type=str, help="Override default configuration directory")
     parser.add_argument("--redirect-logs", type=str, help=argparse.SUPPRESS)
+    parser.add_argument("--gui-mode", action="store_true", help=argparse.SUPPRESS)
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
     # guest command
@@ -1561,6 +1572,9 @@ def run_cli(args_list=None):
     default_conn_parser.add_argument("server", nargs="?", help="Server name or ID (required only for 'custom' strategy)")
 
     args = parser.parse_args(args_list)
+    
+    if getattr(args, 'gui_mode', False):
+        os.environ["PVPN_GUI_MODE"] = "1"
     
     if hasattr(args, 'redirect_logs') and args.redirect_logs:
         class LogWriter:
