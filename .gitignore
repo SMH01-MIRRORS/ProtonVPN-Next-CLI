@@ -21,3 +21,5 @@ __pycache__/
 # AI Scratch/Test Scripts
 test_bcrypt.py
 amneziawg-tools/
+test.log
+test_eof.py

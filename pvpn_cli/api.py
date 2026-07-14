@@ -516,7 +516,8 @@ def get_current_status_dict():
             "stats": historical,
             "traffic_stats_enabled": db.get_setting("traffic_stats_enabled", "true") == "true",
             "default_connect_strategy": db.get_setting("default_connect_strategy", "best"),
-            "default_connect_server": db.get_setting("default_connect_server", "")
+            "default_connect_server": db.get_setting("default_connect_server", ""),
+            "os": sys.platform
         }
 
         with last_status_cache["lock"]:
@@ -754,6 +755,39 @@ def register_cert():
         return jsonify({"success": True, "data": response})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
+
+@app.route("/api/cert/info", methods=["GET"])
+def get_cert_info():
+    db = Database()
+    session = db.get_session()
+    if not session or not session.get("wg_private_key"):
+        return jsonify({"success": False, "error": "No certificate found"})
+        
+    import hashlib
+    # Compute a short ID from the public key or private key just for display
+    priv_key = session.get("wg_private_key")
+    cert_id = hashlib.sha256(priv_key.encode()).hexdigest()[:12].upper()
+    
+    expires_at = session.get("cert_expires_at", 0)
+    # If no explicitly stored issue date, we guess it from expires_at minus 10 years (or just leave blank if 0)
+    from datetime import datetime
+    
+    if expires_at > 0:
+        expires_str = datetime.fromtimestamp(expires_at).strftime('%Y-%m-%d %H:%M')
+        issued_str = datetime.fromtimestamp(expires_at - 10*365*24*3600).strftime('%Y-%m-%d')
+    else:
+        expires_str = "Unknown"
+        issued_str = "Unknown"
+        
+    return jsonify({
+        "success": True,
+        "cert": {
+            "id": cert_id,
+            "issued": issued_str,
+            "expires": expires_str
+        }
+    })
+
 
 @app.route("/api/locale", methods=["GET"])
 def get_locale():

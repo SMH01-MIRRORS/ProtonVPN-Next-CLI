@@ -142,7 +142,9 @@ class RoutingManager:
         
         split_cfg = self._get_split_config()
         exclude_ips, exclude_apps = self._resolve_ips(split_cfg.get("split_items", []))
-        exclude_lan = split_cfg.get("exclude_lan", False)
+        from pvpn_cli.database import Database
+        db_allow_lan = Database().get_setting("allow_lan", "false") == "true"
+        exclude_lan = split_cfg.get("exclude_lan", False) or db_allow_lan
         dns_list = [ip.strip() for ip in dns_ips.split(",") if ip.strip()]
         
         engine_running = False
