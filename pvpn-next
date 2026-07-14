@@ -819,7 +819,7 @@ def do_connect(server_name: str, awg_str: str):
         if is_windows:
             try:
                 from pvpn_cli.watchdog import Watchdog
-                Watchdog().install()
+                Watchdog().install_if_needed()
             except Exception as e:
                 print(f"[WARNING] Failed to install watchdog: {e}")
     except KeyboardInterrupt:
@@ -1761,7 +1761,7 @@ def run_cli(args_list=None):
     else:
         parser.print_help()
     
-    if args.command != "_daemon" and os.environ.get("PVPN_GUI_MODE") != "1":
+    if args.command not in ("_daemon", "connect", "disconnect", "api-server", "_watchdog") and os.environ.get("PVPN_GUI_MODE") != "1":
         ensure_daemon_running()
 
 def main():

@@ -212,6 +212,30 @@ def location_tracker():
 
 class SudoRequiredError(Exception): pass
 
+def cleanup_stale_cli_processes():
+    """Kill any orphaned pvpn-next.exe processes except api-server and watchdog."""
+    if sys.platform != "win32":
+        return
+    try:
+        import psutil
+        my_pid = os.getpid()
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                if proc.info['name'] and 'pvpn-next' in proc.info['name'].lower():
+                    if proc.info['pid'] == my_pid:
+                        continue
+                    cmdline = proc.info.get('cmdline') or []
+                    cmdline_str = ' '.join(cmdline).lower()
+                    # Keep api-server and watchdog alive
+                    if 'api-server' in cmdline_str or '_watchdog' in cmdline_str:
+                        continue
+                    print(f"[CLEANUP] Killing stale CLI process PID={proc.info['pid']}", flush=True)
+                    proc.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+    except Exception as e:
+        print(f"[WARNING] Stale process cleanup failed: {e}", flush=True)
+
 def run_cli_elevated(args, sudo_password=None):
     """
     Universal Linux Elevation Logic:
@@ -320,8 +344,16 @@ def run_cli_elevated(args, sudo_password=None):
         except Exception as e:
             raise e
 
-    # Windows (UAC)
-    subprocess.Popen(full_cmd, creationflags=0x08000000)
+    # Windows (UAC) — track the process and wait for it to complete
+    proc = subprocess.Popen(full_cmd, creationflags=0x08000000,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        stdout, stderr = proc.communicate(timeout=120)
+        return (stdout.decode(errors='ignore') + "\n" + stderr.decode(errors='ignore')).strip()
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        return "[ERROR] Elevated process timed out after 120s"
 
 @app.route("/api/events")
 def events():
@@ -927,6 +959,9 @@ def vpn_connect():
          return jsonify({"success": False, "error": "Could not determine server to connect."}), 400
 
     try:
+        # Kill any stale CLI processes from previous operations
+        cleanup_stale_cli_processes()
+
         db.add_recent_connection(server)
         print(f"-> GUI Connection request: {server}", flush=True)
 
@@ -968,6 +1003,9 @@ def vpn_disconnect():
             return jsonify({"success": False, "error": "Connection action already in progress"}), 400
 
     try:
+        # Kill any stale CLI processes from previous operations
+        cleanup_stale_cli_processes()
+
         print(f"-> GUI Disconnect request", flush=True)
 
         status_state["vpn_state"] = "DISCONNECTING"

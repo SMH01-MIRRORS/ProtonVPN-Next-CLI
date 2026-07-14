@@ -23,6 +23,22 @@ class Watchdog:
         except Exception:
             pass
 
+    def install_if_needed(self):
+        """Only install if not already registered in Task Scheduler."""
+        if sys.platform != "win32":
+            return
+        try:
+            result = subprocess.run(
+                ["schtasks", "/Query", "/TN", "PVPN-Next-Watchdog"],
+                capture_output=True, creationflags=0x08000000
+            )
+            if result.returncode == 0:
+                self._log("Watchdog task already exists, skipping install.")
+                return
+        except Exception:
+            pass
+        self.install()
+
     def install(self):
         """Installs the watchdog via Windows Task Scheduler to run on startup with Highest Privileges."""
         if sys.platform != "win32":
