@@ -742,6 +742,10 @@ def register_cert():
     api = ProtonVpnApi()
     data = request.json or {}
     public_key = data.get("public_key")
+    db = Database()
+
+    extended_cert = db.get_setting("extended_cert", "false") == "true"
+    mode = "persistent" if extended_cert else None
 
     if not public_key:
         from pvpn_cli.crypto import ProtonCrypto
@@ -751,7 +755,7 @@ def register_cert():
         db.update_certificate(wg_priv, public_key, 0, 0)
 
     try:
-        response = api.register_cert(public_key)
+        response = api.register_cert(public_key, mode=mode)
         return jsonify({"success": True, "data": response})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
