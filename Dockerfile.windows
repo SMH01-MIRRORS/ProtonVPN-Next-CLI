@@ -55,3 +55,4 @@ RUN wine "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Q setup.iss
 FROM scratch AS export-stage
 COPY --from=pyinstaller-builder /app/dist/pvpn-next-windows-file.exe /pvpn-next-windows.exe
 COPY --from=pyinstaller-builder /app/dist/pvpn-next-setup.exe /
+COPY --from=pyinstaller-builder /app/dist/pvpn-next-windows /pvpn-next
