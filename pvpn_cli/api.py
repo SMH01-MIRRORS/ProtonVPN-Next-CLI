@@ -853,7 +853,8 @@ def get_settings():
         "gui_theme": db.get_setting("gui_theme", "system"),
         "traffic_stats_enabled": db.get_setting("traffic_stats_enabled", "true"),
         "default_connect_strategy": db.get_setting("default_connect_strategy", "best"),
-        "default_connect_server": db.get_setting("default_connect_server", "")
+        "default_connect_server": db.get_setting("default_connect_server", ""),
+        "extended_cert": db.get_setting("extended_cert", "false")
     }
     return jsonify({"success": True, "settings": settings})
 
@@ -866,7 +867,8 @@ def update_settings():
         "protocol", "obfuscation_enabled", "obfuscation_config",
         "split_tunneling", "custom_dns", "kill_switch", "auto_connect",
         "spoof_country", "allow_lan", "vpn_port", "gui_theme",
-        "traffic_stats_enabled", "default_connect_strategy", "default_connect_server"
+        "traffic_stats_enabled", "default_connect_strategy", "default_connect_server",
+        "extended_cert"
     ]
     for key, value in data.items():
         if key in allowed_keys:
