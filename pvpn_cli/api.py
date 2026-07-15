@@ -226,8 +226,8 @@ def cleanup_stale_cli_processes():
                         continue
                     cmdline = proc.info.get('cmdline') or []
                     cmdline_str = ' '.join(cmdline).lower()
-                    # Keep api-server and watchdog alive
-                    if 'api-server' in cmdline_str or '_watchdog' in cmdline_str:
+                    # Keep api-server, watchdog, and daemon alive
+                    if any(x in cmdline_str for x in ('api-server', '_watchdog', '_daemon')):
                         continue
                     print(f"[CLEANUP] Killing stale CLI process PID={proc.info['pid']}", flush=True)
                     proc.kill()

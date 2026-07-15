@@ -100,6 +100,8 @@ def elevate_if_needed_windows(cmd_args=None, exit_on_success=True):
         import tempfile
         import uuid
         import time
+        from ctypes import wintypes
+        
         log_id = str(uuid.uuid4())
         log_file = os.path.join(tempfile.gettempdir(), f"pvpn_elevate_{log_id}.log")
         open(log_file, "w").close()
@@ -109,36 +111,70 @@ def elevate_if_needed_windows(cmd_args=None, exit_on_success=True):
         args_to_use = [config_arg, f'--redirect-logs="{log_file}"'] + args_to_use
         params = ' '.join([arg if arg.startswith('--') and '"' in arg else f'"{arg}"' for arg in args_to_use])
         
+        class SHELLEXECUTEINFOW(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", wintypes.DWORD),
+                ("fMask", ctypes.c_ulong),
+                ("hwnd", wintypes.HWND),
+                ("lpVerb", ctypes.c_wchar_p),
+                ("lpFile", ctypes.c_wchar_p),
+                ("lpParameters", ctypes.c_wchar_p),
+                ("lpDirectory", ctypes.c_wchar_p),
+                ("nShow", ctypes.c_int),
+                ("hInstApp", wintypes.HINSTANCE),
+                ("lpIDList", ctypes.c_void_p),
+                ("lpClass", ctypes.c_wchar_p),
+                ("hkeyClass", wintypes.HKEY),
+                ("dwHotKey", wintypes.DWORD),
+                ("hIconOrMonitor", wintypes.HANDLE),
+                ("hProcess", wintypes.HANDLE),
+            ]
+            
+        SEE_MASK_NOCLOSEPROCESS = 0x00000040
+        
+        sei = SHELLEXECUTEINFOW()
+        sei.cbSize = ctypes.sizeof(sei)
+        sei.fMask = SEE_MASK_NOCLOSEPROCESS
+        sei.hwnd = None
+        sei.lpVerb = "runas"
+        
         if getattr(sys, 'frozen', False):
-            ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 0)
+            sei.lpFile = sys.executable
+            sei.lpParameters = params
         else:
-            ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, f'"{os.path.abspath(sys.argv[0])}" {params}', None, 0)
-
-        if ret <= 32:
-            print("[ERROR] Failed to elevate privileges. (UAC prompt denied or error)")
+            sei.lpFile = sys.executable
+            sei.lpParameters = f'"{os.path.abspath(sys.argv[0])}" {params}'
+            
+        sei.lpDirectory = None
+        sei.nShow = 0  # SW_HIDE
+        
+        ret = ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(sei))
+        if not ret or not sei.hProcess:
+            print("[ERROR] Failed to UAC elevate privileges. (Prompt denied or failed)")
             sys.exit(1)
             
+        hProcess = sei.hProcess
+        
         try:
-            timeout_time = time.time() + 60
-            with open(log_file, "r") as f:
+            with open(log_file, "r", encoding="utf-8") as f:
                 while True:
                     line = f.readline()
-                    if not line:
-                        if time.time() > timeout_time:
-                            print("\n[ERROR] Elevated process timed out or crashed.", end="")
-                            break
-                        time.sleep(0.1)
+                    if line:
+                        print(line, end="")
                         continue
                         
-                    # Reset timeout when we receive data
-                    timeout_time = time.time() + 60
-                    
-                    if line.strip() == "===EOF===":
+                    # Check if process is still running
+                    wait_ret = ctypes.windll.kernel32.WaitForSingleObject(hProcess, 50)
+                    if wait_ret == 0:  # WAIT_OBJECT_0
+                        # Final read
+                        for remaining_line in f.readlines():
+                            print(remaining_line, end="")
                         break
-                    print(line, end="")
+                    time.sleep(0.05)
         except KeyboardInterrupt:
-            pass
+            ctypes.windll.kernel32.TerminateProcess(hProcess, 1)
         finally:
+            ctypes.windll.kernel32.CloseHandle(hProcess)
             try:
                 os.remove(log_file)
             except:
@@ -232,9 +268,9 @@ def do_status():
     engine_name = "pvpn-engine.exe" if platform.system() == "Windows" else "pvpn-engine"
     if platform.system() == "Windows":
         try:
-            import subprocess
-            output = subprocess.check_output(f'tasklist /FI "IMAGENAME eq {engine_name}"', shell=True, text=True, creationflags=0x08000000)
-            vpn_running = engine_name.lower() in output.lower()
+            import psutil
+            vpn_running = any(proc.info['name'] and engine_name.lower() in proc.info['name'].lower() 
+                              for proc in psutil.process_iter(['name']))
         except Exception:
             pass
     else:
@@ -251,9 +287,12 @@ def do_status():
             with open(daemon_pid, "r") as f:
                 pid = int(f.read().strip())
             if platform.system() == "Windows":
-                import subprocess
-                output = subprocess.check_output(f'tasklist /FI "PID eq {pid}"', shell=True, text=True, creationflags=0x08000000)
-                daemon_running = str(pid) in output
+                import psutil
+                try:
+                    p = psutil.Process(pid)
+                    daemon_running = p.is_running() and any(x in p.name().lower() for x in ("pvpn", "python"))
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    daemon_running = False
             else:
                 os.kill(pid, 0)
                 daemon_running = True
@@ -1344,6 +1383,26 @@ def ensure_daemon_running():
     if db.get_setting("daemon_enabled", "1") == "0":
         return
         
+    if platform.system() == "Windows":
+        try:
+            import psutil
+            watchdog_running = False
+            for proc in psutil.process_iter(['name', 'cmdline']):
+                try:
+                    if proc.info['name'] and 'pvpn-watchdog' in proc.info['name'].lower():
+                        watchdog_running = True
+                        break
+                    cmdline = proc.info.get('cmdline') or []
+                    if any('_watchdog' in arg for arg in cmdline):
+                        watchdog_running = True
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            if watchdog_running:
+                return  # Watchdog is running and handles daemon tasks! No need to spawn _daemon!
+        except Exception:
+            pass
+
     daemon_pid_path = os.path.join(get_config_dir(), "daemon.pid")
     is_running = False
     
@@ -1353,9 +1412,13 @@ def ensure_daemon_running():
                 pid = int(f.read().strip())
             try:
                 if platform.system() == "Windows":
-                    output = subprocess.check_output(f'tasklist /FI "PID eq {pid}"', shell=True, text=True, creationflags=0x08000000)
-                    if str(pid) in output:
-                        is_running = True
+                    import psutil
+                    try:
+                        p = psutil.Process(pid)
+                        if p.is_running() and any(x in p.name().lower() for x in ("pvpn", "python")):
+                            is_running = True
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
                 else:
                     os.kill(pid, 0)
                     is_running = True
@@ -1807,8 +1870,9 @@ def main():
             vpn_running = False
             try:
                 if platform.system() == "Windows":
-                    output = subprocess.check_output(f'tasklist /FI "IMAGENAME eq {engine_name}"', shell=True, text=True, creationflags=0x08000000)
-                    vpn_running = engine_name.lower() in output.lower()
+                    import psutil
+                    vpn_running = any(proc.info['name'] and engine_name.lower() in proc.info['name'].lower() 
+                                      for proc in psutil.process_iter(['name']))
                 else:
                     vpn_running = subprocess.run(["pgrep", "-f", engine_name], capture_output=True).returncode == 0
             except:

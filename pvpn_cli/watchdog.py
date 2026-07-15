@@ -83,7 +83,33 @@ class Watchdog:
         if sys.platform != "win32":
             return
 
+        class LogRedirector:
+            def __init__(self, log_func):
+                self.log_func = log_func
+            def write(self, msg):
+                if msg.strip():
+                    self.log_func(msg.strip())
+            def flush(self):
+                pass
+
+        sys.stdout = LogRedirector(self._log)
+        sys.stderr = sys.stdout
+
         self._log(f"Watchdog service started (PID: {os.getpid()}).")
+
+        # Start background workers if daemon is enabled in DB
+        try:
+            from .database import Database
+            db = Database()
+            if db.get_setting("daemon_enabled", "1") != "0":
+                from .workers import BackgroundWorkers
+                import threading
+                workers = BackgroundWorkers()
+                t = threading.Thread(target=workers.start, daemon=True)
+                t.start()
+                self._log("Started background workers thread inside watchdog.")
+        except Exception as e:
+            self._log(f"Failed to start background workers thread: {e}")
         
         while True:
             time.sleep(10)

@@ -99,6 +99,9 @@ class BackgroundWorkers:
         
         while True:
             try:
+                if self.db.get_setting("daemon_enabled", "1") == "0":
+                    time.sleep(5)
+                    continue
                 if os.path.exists(routing_file):
                     current_ip = self.db.get_setting("current_real_ip", "")
                     if current_ip:
@@ -139,6 +142,9 @@ class BackgroundWorkers:
 
         while True:
             try:
+                if self.db.get_setting("daemon_enabled", "1") == "0":
+                    time.sleep(self.LOOP_DELAY)
+                    continue
                 # Check servers
                 if self._should_run("last_server_fetch", self.SERVER_FETCH_INTERVAL):
                     self.sync_servers()
