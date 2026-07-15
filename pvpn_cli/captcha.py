@@ -73,6 +73,12 @@ class CaptchaProxyServer:
             def log_message(self, format, *args):
                 pass
             
+            def handle(self):
+                try:
+                    super().handle()
+                except (ConnectionError, socket.error, ValueError):
+                    pass
+            
             def do_POST(self):
                 if self.path == '/submit_token':
                     content_length = int(self.headers.get('Content-Length', 0))
