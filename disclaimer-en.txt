@@ -1,4 +1,4 @@
-UNOFFICIAL PROTON VPN CLI NOTICE
+﻿UNOFFICIAL PROTON VPN CLI NOTICE
 
 Please read the following notice carefully before continuing with the installation.
 
