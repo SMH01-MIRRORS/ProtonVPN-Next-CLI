@@ -29,7 +29,7 @@ build-windows:
 	python3 -m venv .venv
 	./.venv/bin/pip install pyinstaller
 	./.venv/bin/pip install -r requirements.txt
-	./.venv/bin/pyinstaller --noconfirm --onefile --name pvpn-next-windows --icon=icon.ico --version-file version_info.txt --add-data "engine/pvpn-engine.exe:engine" --add-data "engine/wintun.dll:engine" pvpn-next
+	./.venv/bin/pyinstaller --noconfirm --onedir --name pvpn-next --icon=icon.ico --version-file version_info.txt --add-data "engine/pvpn-engine.exe:engine" --add-data "engine/wintun.dll:engine" pvpn-next
 
 build-linux-bin:
 	cd engine && $(GO_BUILD_CMD) -o pvpn-engine helper.go setup_linux.go

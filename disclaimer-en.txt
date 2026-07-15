@@ -1,0 +1,9 @@
+UNOFFICIAL PROTON VPN CLI NOTICE
+
+Please read the following notice carefully before continuing with the installation.
+
+This software is an UNOFFICIAL command-line interface (CLI) for Proton VPN:
+1. This software is NOT owned, developed, or maintained by Proton AG.
+2. The developers of this software do not provide any official support from Proton AG.
+3. The software is distributed "AS IS", without warranty of any kind, express or implied.
+4. You use this software at your own risk. The developers are not liable for any malfunctions, data loss, or connectivity issues.

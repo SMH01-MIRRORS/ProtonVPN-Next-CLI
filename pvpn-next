@@ -1582,6 +1582,7 @@ def run_cli(args_list=None):
     # daemon (hidden internal command)
     parser_daemon = subparsers.add_parser("_daemon", help=argparse.SUPPRESS)
     parser_watchdog = subparsers.add_parser("_watchdog", help=argparse.SUPPRESS)
+    parser_install_watchdog = subparsers.add_parser("_install-watchdog", help=argparse.SUPPRESS)
     
     # update-session command
     subparsers.add_parser("update-session", help="Manually refresh API session tokens")
@@ -1711,6 +1712,9 @@ def run_cli(args_list=None):
     elif args.command == "_watchdog":
         from pvpn_cli.watchdog import Watchdog
         Watchdog().run()
+    elif args.command == "_install-watchdog":
+        from pvpn_cli.watchdog import Watchdog
+        Watchdog().install()
     elif args.command == "exclude-lan":
         do_exclude_lan(args.state)
     elif args.command == "split-tunneling":
@@ -1824,7 +1828,7 @@ def run_cli(args_list=None):
     else:
         parser.print_help()
     
-    if args.command not in ("_daemon", "connect", "disconnect", "api-server", "_watchdog") and os.environ.get("PVPN_GUI_MODE") != "1":
+    if args.command not in ("_daemon", "connect", "disconnect", "api-server", "_watchdog", "_install-watchdog") and os.environ.get("PVPN_GUI_MODE") != "1":
         ensure_daemon_running()
 
 def main():
