@@ -160,8 +160,8 @@ class ProtonAuthApi:
             raise Exception(f"Captcha required but no WebUrl provided: {error_data}")
             
         from .captcha import CaptchaProxyServer
-        # For simplicity, we use netlify proxy to circumvent DPI
-        proxy = CaptchaProxyServer("https://shimmering-stroopwafel-51675e.netlify.app", session_id)
+        # For simplicity, we use deno proxy to circumvent DPI
+        proxy = CaptchaProxyServer("https://quick-bluejay-8760.smh01-mirrors.deno.net", session_id, user_agent=self.headers.get("User-Agent"))
         token = proxy.start_and_wait(web_url)
         return token
 

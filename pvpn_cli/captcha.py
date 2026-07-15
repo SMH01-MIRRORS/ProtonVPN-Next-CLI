@@ -11,7 +11,7 @@ import socket
 import time
 
 class CaptchaProxyServer:
-    def __init__(self, proxy_base, session_id):
+    def __init__(self, proxy_base, session_id, user_agent=None):
         from .database import Database
         bypass = Database().get_setting("api_bypass", "0")
         if bypass in ("1", "cloudflare"):
@@ -23,6 +23,7 @@ class CaptchaProxyServer:
         else:
             self.proxy_base = proxy_base.rstrip('/')
         self.session_id = session_id
+        self.user_agent = user_agent
         self.token = None
         self.server = None
 
@@ -131,7 +132,10 @@ class CaptchaProxyServer:
                         req.add_header(k, v)
 
                 from .device_info import DeviceInfoProvider
-                req.add_header('User-Agent', DeviceInfoProvider().get_spoofed_user_agent())
+                if parent.user_agent:
+                    req.add_header('User-Agent', parent.user_agent)
+                else:
+                    req.add_header('User-Agent', DeviceInfoProvider().get_spoofed_user_agent())
                 req.add_header('x-pm-appversion', f'android-vpn@{DeviceInfoProvider.SPOOFED_APP_VERSION}-dev+play')
                 req.add_header('x-pm-apiversion', '4')
                 if parent.session_id:
@@ -233,6 +237,7 @@ class CaptchaProxyServer:
                             }}
                             if (data && (data.type === 'HUMAN_VERIFICATION_SUCCESS' || data.type === 'Success')) {{
                                 var token = data.payload ? data.payload.token : data.token;
+                                if (typeof token === 'object') token = token.token || JSON.stringify(token);
                                 fetch('/submit_token', {{method: 'POST', body: token}}).then(() => {{
                                     document.body.innerHTML = '<h2 style="color:white;text-align:center;margin-top:50px;font-family:sans-serif;">Success! You can close this tab and return to the terminal.</h2>';
                                 }});
