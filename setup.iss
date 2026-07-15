@@ -1,4 +1,4 @@
-[Setup]
+﻿[Setup]
 AppName=ProtonVPN-Next CLI
 AppVersion=1.0.0
 DefaultDirName={pf}\ProtonVPN-Next CLI
