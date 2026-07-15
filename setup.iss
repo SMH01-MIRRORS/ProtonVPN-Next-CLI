@@ -1,4 +1,4 @@
-﻿[Setup]
+[Setup]
 AppName=ProtonVPN-Next CLI
 AppVersion=1.0.0
 DefaultDirName={pf}\ProtonVPN-Next CLI
@@ -9,6 +9,7 @@ SolidCompression=yes
 OutputDir=dist
 OutputBaseFilename=pvpn-next-setup
 PrivilegesRequired=admin
+ChangesEnvironment=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"; LicenseFile: "disclaimer-en.txt"
@@ -72,20 +73,10 @@ Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 const
   EnvironmentKey = 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment';
 
-#ifdef UNICODE
-  #define AW "W"
-#else
-  #define AW "A"
-#endif
-
-function SendMessageTimeout(HWND: HWND; Msg: UINT; wParam: Longint; lParam: String; fuFlags: UINT; uTimeout: UINT; var lpdwResult: DWORD): Longint;
-  external 'SendMessageTimeout{#AW}@user32.dll stdcall';
-
 procedure AddToPath(PathToAdd: string);
 var
   OldPath: string;
   NewPath: string;
-  dwResult: DWORD;
 begin
   if not RegQueryStringValue(HKEY_LOCAL_MACHINE, EnvironmentKey, 'Path', OldPath) then
     OldPath := '';
@@ -97,11 +88,7 @@ begin
     if (NewPath <> '') and (NewPath[Length(NewPath)] <> ';') then
       NewPath := NewPath + ';';
     NewPath := NewPath + PathToAdd;
-    if RegWriteStringValue(HKEY_LOCAL_MACHINE, EnvironmentKey, 'Path', NewPath) then
-    begin
-      // Broadcast settings change to notify system
-      SendMessageTimeout(HWND_BROADCAST, $001A, 0, 'Environment', $0002, 5000, dwResult);
-    end;
+    RegWriteStringValue(HKEY_LOCAL_MACHINE, EnvironmentKey, 'Path', NewPath);
   end;
 end;
 
