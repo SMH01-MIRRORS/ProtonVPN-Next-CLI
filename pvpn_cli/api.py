@@ -20,6 +20,21 @@ init_sentry()
 app = Flask(__name__)
 CORS(app)
 
+global_api_token = None
+
+@app.before_request
+def check_api_token():
+    if request.method == "OPTIONS":
+        return
+    if global_api_token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header == f"Bearer {global_api_token}":
+            return
+        query_token = request.args.get("token")
+        if query_token == global_api_token:
+            return
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+
 # Global location state
 location_state = {
     "country_code": "",
@@ -465,7 +480,6 @@ def get_current_status_dict():
 
         if vpn_active:
             import psutil
-            import sys
             engine_running = False
             engine_name = "pvpn-engine.exe" if sys.platform == "win32" else "pvpn-engine"
             for proc in psutil.process_iter(['name']):
@@ -1125,7 +1139,9 @@ def status_watcher():
             last_exists = exists
             notify_status_change()
 
-def run_api_server(port=34115, debug=False):
+def run_api_server(port=34115, debug=False, api_token=None):
+    global global_api_token
+    global_api_token = api_token
     import logging
     log = logging.getLogger('werkzeug')
     if debug:
