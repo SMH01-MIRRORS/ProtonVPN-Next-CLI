@@ -556,7 +556,11 @@ def login_guest():
                 from pvpn_cli.crypto import ProtonCrypto
                 wg_priv, pem_pub = ProtonCrypto.generate_vpn_keys()
                 db.update_certificate(wg_priv, pem_pub, 0, 0)
-                api_vpn.register_cert(pem_pub)
+                response = api_vpn.register_cert(pem_pub)
+                cert_data = response.get('Certificate', pem_pub)
+                exp = response.get('ExpirationTime', 0)
+                ref = response.get('RefreshTime', 0)
+                db.update_certificate(wg_priv, cert_data, exp, ref)
                 print("-> Guest Login: Certificate registered automatically.", flush=True)
 
             if db.get_server_count() == 0:
@@ -613,7 +617,11 @@ def login_user_endpoint():
                     from pvpn_cli.crypto import ProtonCrypto
                     wg_priv, pem_pub = ProtonCrypto.generate_vpn_keys()
                     db.update_certificate(wg_priv, pem_pub, 0, 0)
-                    api_vpn.register_cert(pem_pub)
+                    response = api_vpn.register_cert(pem_pub)
+                    cert_data = response.get('Certificate', pem_pub)
+                    exp = response.get('ExpirationTime', 0)
+                    ref = response.get('RefreshTime', 0)
+                    db.update_certificate(wg_priv, cert_data, exp, ref)
                 if db.get_server_count() == 0:
                     api_vpn.fetch_servers()
                     api_vpn.fetch_loads()
@@ -756,6 +764,11 @@ def register_cert():
 
     try:
         response = api.register_cert(public_key, mode=mode)
+        if 'wg_priv' in locals():
+            cert_data = response.get('Certificate', public_key)
+            exp = response.get('ExpirationTime', 0)
+            ref = response.get('RefreshTime', 0)
+            db.update_certificate(wg_priv, cert_data, exp, ref)
         return jsonify({"success": True, "data": response})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
