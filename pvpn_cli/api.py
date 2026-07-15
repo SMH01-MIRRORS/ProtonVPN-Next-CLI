@@ -786,12 +786,14 @@ def get_cert_info():
     cert_id = hashlib.sha256(priv_key.encode()).hexdigest()[:12].upper()
     
     expires_at = session.get("cert_expires_at", 0)
-    # If no explicitly stored issue date, we guess it from expires_at minus 10 years (or just leave blank if 0)
+    updated_at = session.get("updated_at", "")
     from datetime import datetime
     
     if expires_at > 0:
         expires_str = datetime.fromtimestamp(expires_at).strftime('%Y-%m-%d %H:%M')
-        issued_str = datetime.fromtimestamp(expires_at - 10*365*24*3600).strftime('%Y-%m-%d')
+        issued_str = updated_at.split(" ")[0] if " " in updated_at else updated_at
+        if not issued_str:
+            issued_str = datetime.now().strftime('%Y-%m-%d')
     else:
         expires_str = "Unknown"
         issued_str = "Unknown"
