@@ -82,7 +82,7 @@ begin
     OldPath := '';
     
   // Check if already in Path
-  if Pos(StringChange(PathToAdd, '\', '\\'), StringChange(OldPath, '\', '\\')) = 0 then
+  if Pos(Lowercase(PathToAdd), Lowercase(OldPath)) = 0 then
   begin
     NewPath := OldPath;
     if (NewPath <> '') and (NewPath[Length(NewPath)] <> ';') then
