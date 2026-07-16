@@ -28,6 +28,18 @@ steps:
       - wine pip install -r requirements.txt
       - wine pyinstaller --onefile --name pvpn-next-windows --icon=icon.ico --version-file version_info.txt --add-data "engine/pvpn-engine.exe;engine" --add-data "engine/wintun.dll;engine" pvpn-next
 
+  update-nix-hash:
+    image: nixos/nix:latest
+    when:
+      event: tag
+    environment:
+      CODEBERG_TOKEN:
+        from_secret: CODEBERG_TOKEN
+    commands:
+      - echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
+      - nix-env -iA nixpkgs.git
+      - sh scripts/update_nix_hash.sh
+
   generate-changelog:
     image: python:3.11-slim
     when:
