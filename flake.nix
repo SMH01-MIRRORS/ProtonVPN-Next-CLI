@@ -26,7 +26,7 @@
             pname = "pvpn-engine";
             version = "1.0.0";
             src = ./engine;
-            vendorHash = "sha256-gzwD2uSRAIkFpBnoDMsH/jD8OLU1+Dr70R2u1+lZVCo=";
+            vendorHash = "sha256-BzJXExy7ivS6YQ+NB7vTNFwspsUPpDVW/4n/NvMHlQw=";
             buildPhase = ''
               go build -o pvpn-engine helper.go setup_linux.go
             '';
