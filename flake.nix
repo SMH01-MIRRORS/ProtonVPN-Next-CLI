@@ -24,7 +24,7 @@
           
           engine = pkgs.buildGoModule {
             pname = "pvpn-engine";
-            version = "1.0.0";
+            version = "1.1.0";
             src = ./engine;
             vendorHash = "sha256-BzJXExy7ivS6YQ+NB7vTNFwspsUPpDVW/4n/NvMHlQw=";
             buildPhase = ''
@@ -40,7 +40,7 @@
         {
           default = pkgs.stdenv.mkDerivation {
             pname = "pvpn-next-cli";
-            version = "1.0.0";
+            version = "1.1.0";
 
             src = ./.;
 
