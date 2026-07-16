@@ -37,7 +37,7 @@ steps:
         from_secret: CODEBERG_TOKEN
     commands:
       - echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
-      - nix-env -iA nixpkgs.git
+      - git --version
       - sh scripts/update_nix_hash.sh
 
   generate-changelog:
