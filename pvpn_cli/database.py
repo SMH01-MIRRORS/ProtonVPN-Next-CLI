@@ -88,6 +88,15 @@ class Database:
                 )
             """)
 
+            # Snapshot columns so recents survive server list rotation:
+            # Proton rotates free servers, save_servers() deletes stale rows
+            # from `servers`, and recents must stay displayable regardless.
+            for col in ["name TEXT", "country TEXT", "city TEXT"]:
+                try:
+                    cursor.execute(f"ALTER TABLE recent_connections ADD COLUMN {col}")
+                except sqlite3.OperationalError:
+                    pass
+
             # Traffic statistics table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS traffic_stats (
@@ -304,20 +313,43 @@ class Database:
     def add_recent_connection(self, server_id: str):
         with self._get_connection() as conn:
             cursor = conn.cursor()
+            # Snapshot display fields now: the server may later disappear
+            # from `servers` (free server rotation), and the recent entry
+            # must remain displayable on its own.
+            cursor.execute("SELECT name, country, city FROM servers WHERE id = ?", (server_id,))
+            snapshot = cursor.fetchone() or (None, None, None)
             cursor.execute("""
-                INSERT INTO recent_connections (id, last_connected)
-                VALUES (?, CURRENT_TIMESTAMP)
-                ON CONFLICT(id) DO UPDATE SET last_connected=CURRENT_TIMESTAMP
-            """, (server_id,))
+                INSERT INTO recent_connections (id, last_connected, name, country, city)
+                VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    last_connected=CURRENT_TIMESTAMP,
+                    name=COALESCE(excluded.name, name),
+                    country=COALESCE(excluded.country, country),
+                    city=COALESCE(excluded.city, city)
+            """, (server_id, snapshot[0], snapshot[1], snapshot[2]))
             conn.commit()
 
     def get_recent_connections(self, limit: int = 5) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
+            # LEFT JOIN + snapshot fallback: a recent must not vanish just
+            # because the server left the current list (free server rotation).
+            # `available` tells consumers whether the server still exists.
             cursor.execute("""
-                SELECT s.* FROM servers s
-                JOIN recent_connections r ON s.id = r.id
+                SELECT
+                    r.id AS id,
+                    COALESCE(s.name, r.name) AS name,
+                    COALESCE(s.country, r.country) AS country,
+                    COALESCE(s.city, r.city) AS city,
+                    s.tier AS tier,
+                    s."load" AS "load",
+                    s.raw_json AS raw_json,
+                    r.last_connected AS last_connected,
+                    CASE WHEN s.id IS NULL THEN 0 ELSE 1 END AS available
+                FROM recent_connections r
+                LEFT JOIN servers s ON s.id = r.id
+                WHERE COALESCE(s.name, r.name) IS NOT NULL
                 ORDER BY r.last_connected DESC
                 LIMIT ?
             """, (limit,))

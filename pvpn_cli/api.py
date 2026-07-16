@@ -1009,11 +1009,12 @@ def vpn_connect():
             else:
                 return jsonify({"success": False, "error": "No servers available for your tier."}), 400
         elif strategy == "recent":
-            recents = db.get_recent_connections(limit=1)
-            if recents:
-                server = recents[0].get("id")
-            else:
-                # Fallback to best if no recents
+            # Recents can reference rotated-away servers; pick the newest
+            # one that is still present in the current server list.
+            recents = db.get_recent_connections(limit=5)
+            server = next((r.get("id") for r in recents if r.get("available")), None)
+            if not server:
+                # Fallback to best if no usable recents
                 best = vpn.get_best_server()
                 server = best.get("ID") if best else None
         elif strategy == "custom":
