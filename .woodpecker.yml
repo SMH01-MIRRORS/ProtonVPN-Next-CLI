@@ -32,7 +32,13 @@ steps:
     commands:
       - wine pip install pyinstaller
       - wine pip install -r requirements.txt
-      - wine pyinstaller --onefile --name pvpn-next-windows --icon=icon.ico --version-file version_info.txt --add-data "engine/pvpn-engine.exe;engine" --add-data "engine/wintun.dll;engine" pvpn-next
+      - wine pyinstaller --noconfirm --onedir --name pvpn-next-windows --icon=icon.ico --version-file version_info.txt --add-data "engine/pvpn-engine.exe;engine" --add-data "engine/wintun.dll;engine" pvpn-next
+      - wine pyinstaller --noconfirm --onefile --name pvpn-next-windows-file --icon=icon.ico --version-file version_info.txt --add-data "engine/pvpn-engine.exe;engine" --add-data "engine/wintun.dll;engine" pvpn-next
+      - apt-get update && apt-get install -y --no-install-recommends xvfb ca-certificates curl && rm -rf /var/lib/apt/lists/*
+      - curl --fail --location --retry 3 --output is.exe https://github.com/jrsoftware/issrc/releases/download/is-6_2_2/innosetup-6.2.2.exe
+      - xvfb-run -a wine is.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+      - 'xvfb-run -a wine "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Q setup.iss'
+      - mv dist/pvpn-next-windows-file.exe dist/pvpn-next-windows.exe
 
   update-nix-hash:
     image: nixos/nix:latest
@@ -75,6 +81,7 @@ steps:
       files:
         - dist/pvpn-next-linux
         - dist/pvpn-next-windows.exe
+        - dist/pvpn-next-setup.exe
       note: changelog.txt
       title: "Release ${CI_COMMIT_TAG}"
       prerelease: false
@@ -90,6 +97,7 @@ steps:
       files:
         - dist/pvpn-next-linux
         - dist/pvpn-next-windows.exe
+        - dist/pvpn-next-setup.exe
       note: changelog.txt
       title: "Pre-release ${CI_COMMIT_TAG}"
       prerelease: true

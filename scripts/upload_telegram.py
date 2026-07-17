@@ -78,18 +78,20 @@ async def main():
         print("Error: Missing Telegram configuration secrets (API_ID, API_HASH, BOT_TOKEN, TG_CHAT_ID)!")
         return
 
-    # Find CLI binaries
-    binary_files = []
-    if os.path.exists('dist/pvpn-next-linux'):
-        binary_files.append('dist/pvpn-next-linux')
-    if os.path.exists('dist/pvpn-next-windows.exe'):
-        binary_files.append('dist/pvpn-next-windows.exe')
+    # Find release artifacts. The Windows installer and portable executable are
+    # separate deliverables and must both be published.
+    artifacts = [
+        ('dist/pvpn-next-linux', 'Linux'),
+        ('dist/pvpn-next-windows.exe', 'Windows Portable'),
+        ('dist/pvpn-next-setup.exe', 'Windows Setup'),
+    ]
+    artifacts = [(path, platform) for path, platform in artifacts if os.path.exists(path)]
 
-    if not binary_files:
-        print("Error: No binary files found!")
+    if not artifacts:
+        print("Error: No release artifacts found!")
         return
 
-    print(f"Connecting to Telegram via Bot and uploading {len(binary_files)} file(s)...")
+    print(f"Connecting to Telegram via Bot and uploading {len(artifacts)} file(s)...")
     client = TelegramClient(StringSession(''), API_ID, API_HASH)
 
     # Authenticate using the Bot Token
@@ -98,9 +100,8 @@ async def main():
     commit_summary = get_commit_summary()
     commit_label = "Commits" if "\n" in commit_summary else "Commit"
 
-    for bin_path in binary_files:
+    for bin_path, platform_str in artifacts:
         file_name = os.path.basename(bin_path)
-        platform_str = "Windows" if file_name.endswith(".exe") else "Linux"
 
         tag_str = f"\n🏷️ **Tag:** `{TAG}`" if TAG else ""
 
