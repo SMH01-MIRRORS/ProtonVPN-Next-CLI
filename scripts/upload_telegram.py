@@ -53,7 +53,13 @@ def get_commit_summary():
                 for line in lines:
                     if '|' in line:
                         commit_author, subject = line.split('|', 1)
-                        relevant_messages.append(f"{commit_author}: {subject}")
+                        # Match Android notifications: include up to 10 consecutive
+                        # commits from the current pipeline author, without repeating
+                        # the author name in every bullet.
+                        if commit_author in author or author in commit_author:
+                            relevant_messages.append(subject)
+                        else:
+                            break
 
                 if len(relevant_messages) > 1:
                     # Reverse to chronological order: oldest to newest

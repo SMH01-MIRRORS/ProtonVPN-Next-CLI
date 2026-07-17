@@ -1,6 +1,12 @@
 when:
   - event: [push, pull_request, tag, manual]
 
+clone:
+  git:
+    image: woodpeckerci/plugin-git
+    settings:
+      depth: 0
+
 steps:
   build-linux-engine:
     image: golang:latest
