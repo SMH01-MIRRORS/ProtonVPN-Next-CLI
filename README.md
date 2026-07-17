@@ -16,6 +16,7 @@ PVPN-Next CLI is a powerful, unofficial cross-platform command-line client for P
   - Keep the session alive and refresh API tokens every 12 hours.
   - Dynamically renew WireGuard certificates when required by the Proton API.
 - **Device Spoofing**: Masks API calls with Android device fingerprints to blend in with official app traffic.
+- **Mandatory DNS-over-HTTPS**: Public hostnames are always resolved through encrypted DoH using direct bootstrap IPs. Plain ISP DNS fallback and a disable option are intentionally not provided.
 - **API Bypass Routing**: Multiple fallback endpoints (Cloudflare, Netlify, Deno) to circumvent API blocks in censored regions.
 
 ## Usage
