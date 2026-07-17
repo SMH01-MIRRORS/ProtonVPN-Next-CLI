@@ -855,7 +855,7 @@ def set_bypass():
 def get_settings():
     db = Database()
     settings = {
-        "protocol": db.get_setting("protocol", "wireguard"),
+        "protocol": "amneziawg",
         "obfuscation_enabled": db.get_setting("obfuscation_enabled", "false"),
         "obfuscation_config": db.get_setting("obfuscation_config", "vpn-next-default"),
         "split_tunneling": db.get_setting("split_tunneling", "false"),
@@ -879,7 +879,7 @@ def update_settings():
     data = request.json or {}
     messages = []
     allowed_keys = [
-        "protocol", "obfuscation_enabled", "obfuscation_config",
+        "obfuscation_enabled", "obfuscation_config",
         "split_tunneling", "custom_dns", "kill_switch", "auto_connect",
         "spoof_country", "allow_lan", "vpn_port", "gui_theme",
         "traffic_stats_enabled", "default_connect_strategy", "default_connect_server",

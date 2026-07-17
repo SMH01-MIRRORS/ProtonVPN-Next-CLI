@@ -163,7 +163,7 @@ def do_awg_config(action: str, args):
             print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} Config not found.")
     elif action == "unset":
         db.set_setting("active_awg_mode", "none")
-        print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} AWG configurations disabled. Connection will fallback to standard WireGuard.")
+        print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} AmneziaWG obfuscation parameters disabled.")
     elif action == "list":
         configs = db.get_awg_configs()
         if not configs:
@@ -223,7 +223,7 @@ def do_set_default_connect(strategy: str, server: str = None):
         print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} Default connection strategy set to: {strategy}")
 
 
-AVAILABLE_PORTS = ["0", "443", "123", "1194", "51820"]
+AVAILABLE_PORTS = ["0", "53", "80", "123", "443", "500", "51820"]
 
 
 def do_port(port_cmd, value=None):

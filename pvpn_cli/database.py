@@ -116,6 +116,9 @@ class Database:
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Profiles created by the short-lived dual-protocol implementation
+            # are migrated to the only supported Desktop/Android protocol.
+            cursor.execute("UPDATE profiles SET protocol = 'amneziawg' WHERE protocol IS NULL OR protocol <> 'amneziawg'")
 
             # Traffic statistics table
             cursor.execute("""

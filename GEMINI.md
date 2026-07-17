@@ -9,7 +9,7 @@ This document provides technical context and strict operational rules for AI ass
 ## Technical Stack
 - **Language**: Python 3 (CLI logic) and Go (VPN engine)
 - **Packaging**: PyInstaller (Standalone executables)
-- **VPN Core**: Go-based VPN engine (`engine/`) handling the WireGuard/AmneziaWG connections.
+- **VPN Core**: Go-based VPN engine (`engine/`) handling the AmneziaWG/AmneziaWG connections.
 - **Build System**: `make` and Docker (for Windows cross-compilation).
 
 ## Project Structure

@@ -51,7 +51,7 @@ def do_login():
 
 def do_register_cert():
     from pvpn_cli.crypto import ProtonCrypto
-    print("Generating WireGuard key pair...")
+    print("Generating VPN key pair...")
     try:
         priv_key, pub_key_pem = ProtonCrypto.generate_vpn_keys()
     except Exception as e:
@@ -85,7 +85,7 @@ def do_register_cert():
 
 def do_register_extended_cert():
     from pvpn_cli.crypto import ProtonCrypto
-    print("Generating WireGuard key pair...")
+    print("Generating VPN key pair...")
     try:
         priv_key, pub_key_pem = ProtonCrypto.generate_vpn_keys()
     except Exception as e:

@@ -56,8 +56,7 @@ class ProfileServiceTest(unittest.TestCase):
             "name": "Pinned",
             "target_type": "server",
             "server_id": "nl-1",
-            "protocol": "wireguard",
-            "obfuscation_enabled": True,
+            "obfuscation_enabled": False,
         })
         resolved = self.service.resolve_profile(created["id"])
         self.assertEqual("nl-1", resolved["server_id"])
@@ -71,6 +70,8 @@ class ProfileServiceTest(unittest.TestCase):
             self.service.create_profile({"name": "Bad URL", "auto_open_url": "file:///tmp/secret"})
         with self.assertRaises(ProfileValidationError):
             self.service.create_profile({"name": "Bad port", "port": 70000})
+        with self.assertRaises(ProfileValidationError):
+            self.service.create_profile({"name": "Legacy protocol", "protocol": "legacy"})
 
 
 if __name__ == "__main__":

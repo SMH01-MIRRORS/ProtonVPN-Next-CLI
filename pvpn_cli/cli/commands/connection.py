@@ -188,7 +188,7 @@ def do_connect(server_name: str, awg_str: str, port=None):
         
     private_key = session.get("wg_private_key")
     if not private_key:
-        print("[ERROR] No WireGuard private key found. Run 'register-cert' first.")
+        print("[ERROR] No VPN private key found. Run 'register-cert' first.")
         sys.exit(1)
         
     from pvpn_cli.awg import parse_awg_string

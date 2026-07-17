@@ -1,7 +1,7 @@
 # Build Instructions
 
 The PVPN-Next CLI consists of two main components:
-1. **The Go Engine (`pvpn-engine`)**: A compiled Go binary that manages the low-level WireGuard connections and OS network interfaces.
+1. **The Go Engine (`pvpn-engine`)**: A compiled Go binary that manages the low-level AmneziaWG connections and OS network interfaces.
 2. **The Python CLI (`pvpn-next`)**: A Python script that handles API requests, configuration, and user interaction.
 
 The project utilizes `PyInstaller` to bundle the Python CLI and the compiled Go engine into a single, standalone executable for ease of distribution.

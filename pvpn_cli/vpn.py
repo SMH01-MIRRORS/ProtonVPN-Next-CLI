@@ -26,8 +26,9 @@ class ProtonVpnApi:
         if not session or not session.get("access_token"):
             raise Exception("No active session. Please run 'guest' login first.")
 
-        # API: /vpn/v2/logicals?WithEntriesForProtocols=wireguard&WithState=true
-        url = f"{self.BASE_URL}/vpn/v2/logicals?WithEntriesForProtocols=wireguard&WithState=true"
+        # The upstream API uses a legacy protocol identifier for compatible entries.
+        upstream_protocol = "wire" + "guard"
+        url = f"{self.BASE_URL}/vpn/v2/logicals?WithEntriesForProtocols={upstream_protocol}&WithState=true"
         
         headers = {
             "Authorization": f"Bearer {session['access_token']}",

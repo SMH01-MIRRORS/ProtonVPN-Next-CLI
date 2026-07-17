@@ -17,7 +17,6 @@ class ProfileValidationError(ValueError):
 
 class ProfileService:
     TARGET_TYPES = {"fastest", "country", "city", "server"}
-    PROTOCOLS = {"wireguard", "amneziawg"}
 
     def __init__(self, db: Optional[Database] = None):
         self.db = db or Database()
@@ -68,9 +67,10 @@ class ProfileService:
         if target_type == "server" and not server_id:
             raise ProfileValidationError("Server is required for this target")
 
-        protocol = str(data.get("protocol") or "amneziawg").lower()
-        if protocol not in self.PROTOCOLS:
-            raise ProfileValidationError("Unsupported VPN protocol")
+        requested_protocol = data.get("protocol")
+        if requested_protocol and str(requested_protocol).lower() != "amneziawg":
+            raise ProfileValidationError("Only AmneziaWG profiles are supported")
+        protocol = "amneziawg"
 
         try:
             port = int(data.get("port", 0) or 0)
@@ -79,9 +79,7 @@ class ProfileService:
         if port < 0 or port > 65535:
             raise ProfileValidationError("Port must be between 1 and 65535, or 0 for Auto")
 
-        obfuscation_enabled = self._as_bool(data.get("obfuscation_enabled", protocol == "amneziawg"))
-        if protocol == "wireguard":
-            obfuscation_enabled = False
+        obfuscation_enabled = self._as_bool(data.get("obfuscation_enabled", True))
         awg_config = self._optional_text(data.get("awg_config"), 120) or "vpn-next-default"
         if obfuscation_enabled and not self.db.get_awg_config(awg_config):
             raise ProfileValidationError("Selected obfuscation configuration no longer exists")
