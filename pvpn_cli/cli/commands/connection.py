@@ -151,7 +151,7 @@ def do_status():
     print("============================")
 
 
-def do_connect(server_name: str, awg_str: str):
+def do_connect(server_name: str, awg_str: str, port=None):
     db = Database()
     vpn = ProtonVpnApi()
     
@@ -193,8 +193,11 @@ def do_connect(server_name: str, awg_str: str):
         
     from pvpn_cli.awg import parse_awg_string
     
-    final_awg_str = awg_str
-    if not final_awg_str:
+    # "off" is an explicit API/profile override. An empty value keeps the
+    # existing global-setting fallback for backwards compatibility.
+    awg_explicitly_disabled = awg_str == "off"
+    final_awg_str = "" if awg_explicitly_disabled else awg_str
+    if not final_awg_str and not awg_explicitly_disabled:
         mode = db.get_setting("active_awg_mode", "none")
         if mode == "custom":
             final_awg_str = db.get_setting("active_awg_custom_params", "")
@@ -252,7 +255,7 @@ def do_connect(server_name: str, awg_str: str):
         "",
         "[Peer]",
         f"PublicKey = {public_key}",
-        f"Endpoint = {entry_ip}:51820",
+        f"Endpoint = {entry_ip}:{int(port) if port is not None and int(port) > 0 else (51820 if port is not None else int(db.get_setting('vpn_port', '0') or 0) or 51820)}",
         "AllowedIPs = 0.0.0.0/0",
         "PersistentKeepalive = 25"
     ])
@@ -282,12 +285,16 @@ def do_connect(server_name: str, awg_str: str):
         args = ["connect", server_name]
         if awg_str:
             args.append(f"awg={awg_str}")
+        if port is not None:
+            args.append(f"--port={port}")
         elevate_if_needed_windows(args)
     else:
         if os.geteuid() != 0:
             args = ["connect", server_name]
             if awg_str:
                 args.append(f"awg={awg_str}")
+            if port is not None:
+                args.append(f"--port={port}")
             if elevate_command_linux(args):
                 return
 

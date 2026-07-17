@@ -97,6 +97,26 @@ class Database:
                 except sqlite3.OperationalError:
                     pass
 
+            # Connection profiles. All selection and connection behavior lives
+            # in the CLI so GUI clients remain presentation-only.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS profiles (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    target_type TEXT NOT NULL DEFAULT 'fastest',
+                    country TEXT,
+                    city TEXT,
+                    server_id TEXT,
+                    protocol TEXT NOT NULL DEFAULT 'amneziawg',
+                    port INTEGER NOT NULL DEFAULT 0,
+                    obfuscation_enabled INTEGER NOT NULL DEFAULT 1,
+                    awg_config TEXT NOT NULL DEFAULT 'vpn-next-default',
+                    auto_open_url TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             # Traffic statistics table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS traffic_stats (
@@ -309,6 +329,61 @@ class Database:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM servers ORDER BY country, city, name")
             return [dict(row) for row in cursor.fetchall()]
+
+    def get_profiles(self) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT * FROM profiles ORDER BY updated_at DESC, name COLLATE NOCASE").fetchall()
+            return [dict(row) for row in rows]
+
+    def get_profile(self, profile_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,)).fetchone()
+            return dict(row) if row else None
+
+    def create_profile(self, profile: Dict[str, Any]) -> Dict[str, Any]:
+        import uuid
+        profile_id = str(uuid.uuid4())
+        with self._get_connection() as conn:
+            conn.execute("""
+                INSERT INTO profiles (
+                    id, name, target_type, country, city, server_id, protocol,
+                    port, obfuscation_enabled, awg_config, auto_open_url
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                profile_id, profile["name"], profile["target_type"],
+                profile.get("country"), profile.get("city"), profile.get("server_id"),
+                profile["protocol"], profile["port"], int(profile["obfuscation_enabled"]),
+                profile["awg_config"], profile.get("auto_open_url")
+            ))
+            conn.commit()
+        return self.get_profile(profile_id)
+
+    def update_profile(self, profile_id: str, profile: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                UPDATE profiles SET
+                    name = ?, target_type = ?, country = ?, city = ?, server_id = ?,
+                    protocol = ?, port = ?, obfuscation_enabled = ?, awg_config = ?,
+                    auto_open_url = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (
+                profile["name"], profile["target_type"], profile.get("country"),
+                profile.get("city"), profile.get("server_id"), profile["protocol"],
+                profile["port"], int(profile["obfuscation_enabled"]),
+                profile["awg_config"], profile.get("auto_open_url"), profile_id
+            ))
+            conn.commit()
+            if cursor.rowcount == 0:
+                return None
+        return self.get_profile(profile_id)
+
+    def delete_profile(self, profile_id: str) -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.execute("DELETE FROM profiles WHERE id = ?", (profile_id,))
+            conn.commit()
+            return cursor.rowcount > 0
 
     def add_recent_connection(self, server_id: str):
         with self._get_connection() as conn:

@@ -12,6 +12,7 @@ from flask_cors import CORS
 from pvpn_cli.database import Database
 from pvpn_cli.auth import ProtonAuthApi
 from pvpn_cli.vpn import ProtonVpnApi
+from pvpn_cli.profiles import ProfileService, ProfileValidationError
 from pvpn_cli.sentry import init_sentry
 
 # Initialize Sentry
@@ -976,6 +977,39 @@ def delete_awg_config():
     db.delete_awg_config(name)
     return jsonify({"success": True})
 
+@app.route("/api/profiles", methods=["GET", "POST"])
+def profiles_collection():
+    service = ProfileService()
+    if request.method == "GET":
+        return jsonify({"success": True, "profiles": service.list_profiles()})
+    try:
+        profile = service.create_profile(request.json or {})
+        return jsonify({"success": True, "profile": profile}), 201
+    except ProfileValidationError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+
+
+@app.route("/api/profiles/<profile_id>", methods=["GET", "POST", "DELETE"])
+def profile_item(profile_id):
+    service = ProfileService()
+    if request.method == "GET":
+        profile = service.get_profile(profile_id)
+        if not profile:
+            return jsonify({"success": False, "error": "Profile not found"}), 404
+        return jsonify({"success": True, "profile": profile})
+    if request.method == "DELETE":
+        if not service.delete_profile(profile_id):
+            return jsonify({"success": False, "error": "Profile not found"}), 404
+        return jsonify({"success": True})
+    try:
+        profile = service.update_profile(profile_id, request.json or {})
+        return jsonify({"success": True, "profile": profile})
+    except KeyError:
+        return jsonify({"success": False, "error": "Profile not found"}), 404
+    except ProfileValidationError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+
+
 @app.route("/api/vpn/recents", methods=["GET"])
 def get_recent_connections():
     db = Database()
@@ -990,9 +1024,19 @@ def vpn_connect():
             return jsonify({"success": False, "error": "Connection action already in progress"}), 400
 
     data = request.json or {}
-    server = data.get("server")
+    profile_resolution = None
+    if data.get("profile_id"):
+        try:
+            profile_resolution = ProfileService().resolve_profile(str(data["profile_id"]))
+            server = profile_resolution["server_id"]
+        except KeyError:
+            return jsonify({"success": False, "error": "Profile not found"}), 404
+        except ProfileValidationError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+    else:
+        server = data.get("server")
     if not server:
-        return jsonify({"success": False, "error": "server required"}), 400
+        return jsonify({"success": False, "error": "server or profile_id required"}), 400
 
     db = Database()
     vpn = ProtonVpnApi()
@@ -1053,9 +1097,25 @@ def vpn_connect():
             
         notify_status_change()
 
-        output = run_cli_elevated(["connect", server], sudo_password=data.get("sudo_password"))
+        connect_args = ["connect", server]
+        awg_params = profile_resolution["awg_params"] if profile_resolution else data.get("awg")
+        port = profile_resolution["port"] if profile_resolution else int(data.get("port", 0) or 0)
+        if awg_params:
+            connect_args.append(f"awg={awg_params}")
+        if profile_resolution is not None or port:
+            connect_args.append(f"--port={port}")
+
+        output = run_cli_elevated(connect_args, sudo_password=data.get("sudo_password"))
+        if profile_resolution and profile_resolution.get("auto_open_url"):
+            from pvpn_cli.routing import get_config_dir
+            routing_file = os.path.join(get_config_dir(), "routing_state.json")
+            ProfileService.open_url_when_connected(profile_resolution["auto_open_url"], routing_file)
         msgs = output.splitlines() if output else []
-        return jsonify({"success": True, "message": f"Connection to {server} initiated.", "messages": msgs})
+        response = {"success": True, "message": f"Connection to {server} initiated.", "messages": msgs}
+        if profile_resolution:
+            response["profile"] = profile_resolution["profile"]
+            response["resolved_server"] = profile_resolution["server"]
+        return jsonify(response)
     except SudoRequiredError:
         status_state["vpn_state"] = "DISCONNECTED"
         notify_status_change()

@@ -90,6 +90,7 @@ def run_cli(args_list=None):
     connect_parser = subparsers.add_parser("connect", help="Connect to a specific server")
     connect_parser.add_argument("server", help="Server name (e.g. NL-FREE#2)")
     connect_parser.add_argument("awg", nargs="?", help="AmneziaWG parameters (e.g. awg=\"vpn-next-default\")")
+    connect_parser.add_argument("--port", type=int, default=None, help="Endpoint port override (0 uses the protocol default)")
 
     # set-awg command
     set_awg_parser = subparsers.add_parser("set-awg", help="Set custom AmneziaWG parameters to use on connect")
@@ -265,7 +266,7 @@ def run_cli(args_list=None):
         awg_param = args.awg
         if awg_param and awg_param.startswith("awg="):
             awg_param = awg_param[4:].strip('"\'')
-        do_connect(args.server, awg_param)
+        do_connect(args.server, awg_param, args.port)
     elif args.command == "set-bypass":
         do_set_bypass(args.bypass)
     elif args.command == "status":
