@@ -5,6 +5,10 @@ import json
 import urllib.request
 import platform
 import socket
+import hashlib
+import shutil
+import stat
+import tempfile
 from typing import Optional, List, Tuple
 
 def get_config_dir() -> str:
@@ -36,6 +40,40 @@ def get_config_dir() -> str:
         d = os.path.join(home, ".config/pvpn-next")
     os.makedirs(d, exist_ok=True)
     return d
+
+
+def stage_frozen_engine(engine_path: str, runtime_dir: str = "/run/pvpn-next") -> str:
+    """Copy a bundled engine out of PyInstaller's disposable extraction tree."""
+    if not getattr(sys, "frozen", False) or sys.platform == "win32":
+        return engine_path
+
+    os.makedirs(runtime_dir, mode=0o700, exist_ok=True)
+    runtime_stat = os.lstat(runtime_dir)
+    if not stat.S_ISDIR(runtime_stat.st_mode) or runtime_stat.st_uid != os.geteuid():
+        raise RuntimeError(f"Unsafe engine runtime directory: {runtime_dir}")
+    os.chmod(runtime_dir, 0o700)
+
+    digest = hashlib.sha256()
+    with open(engine_path, "rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    staged_path = os.path.join(runtime_dir, f"pvpn-engine-{digest.hexdigest()[:16]}")
+
+    if not os.path.exists(staged_path):
+        fd, temporary_path = tempfile.mkstemp(prefix=".pvpn-engine-", dir=runtime_dir)
+        os.close(fd)
+        try:
+            shutil.copyfile(engine_path, temporary_path)
+            os.chmod(temporary_path, 0o700)
+            os.replace(temporary_path, staged_path)
+        finally:
+            try:
+                os.remove(temporary_path)
+            except FileNotFoundError:
+                pass
+
+    return staged_path
+
 
 class RoutingManager:
     def __init__(self, elevate_cmd: str):
@@ -315,7 +353,7 @@ if command -v resolvectl >/dev/null 2>&1; then
     resolvectl domain {awg_iface} ~\\.
     PHYSICAL_DNS=$(resolvectl status {iface} 2>/dev/null | grep 'DNS Servers' | awk '{{print $3, $4, $5}}')
 else
-    PHYSICAL_DNS=$(grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' /etc/resolv.conf 2>/dev/null)
+    PHYSICAL_DNS=$(grep -Eo '[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+' /etc/resolv.conf 2>/dev/null)
 fi
 
 for ip in $PHYSICAL_DNS; do
@@ -325,6 +363,8 @@ for ip in $PHYSICAL_DNS; do
 done
 """
                     
+            if not engine_running:
+                engine_path = stage_frozen_engine(engine_path)
             engine_cmd = f'ip link delete {awg_iface} 2>/dev/null || true\nnohup {engine_path} -dns "{dns_ips}" < "{config_path}" > "{log_path}" 2> "{client_log_path}" &' if not engine_running else ""
             script = f"""
 {engine_cmd}
