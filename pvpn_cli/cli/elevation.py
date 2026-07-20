@@ -117,7 +117,10 @@ def elevate_command_linux(cmd_args):
         print(f"-> Elevating privileges using {elevate_cmd}...")
         try:
             if getattr(sys, 'frozen', False):
-                base_cmd = [sys.executable]
+                # A privileged one-file process must unpack into its own temporary
+                # directory. Reusing the caller's PyInstaller environment leaves
+                # sys._MEIPASS pointing at files that disappear when the caller exits.
+                base_cmd = ["env", "PYINSTALLER_RESET_ENVIRONMENT=1", sys.executable]
             else:
                 base_cmd = [sys.executable, os.path.abspath(sys.argv[0])]
 

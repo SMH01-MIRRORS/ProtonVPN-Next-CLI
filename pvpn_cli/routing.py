@@ -328,11 +328,15 @@ done
             engine_cmd = f'ip link delete {awg_iface} 2>/dev/null || true\nnohup {engine_path} -dns "{dns_ips}" < "{config_path}" > "{log_path}" 2> "{client_log_path}" &' if not engine_running else ""
             script = f"""
 {engine_cmd}
-# Wait for interface
+# Wait for the userspace engine to create its TUN interface.
 for i in $(seq 1 30); do
     ip link show {awg_iface} >/dev/null 2>&1 && break
     sleep 0.5
 done
+if ! ip link show {awg_iface} >/dev/null 2>&1; then
+    cat "{client_log_path}" >&2
+    exit 1
+fi
 ip -6 route add default dev {awg_iface} metric 1 2>/dev/null || true
 {dns_setup_script}
 ip route add {vpn_ip} via {gw} dev {iface}
@@ -342,7 +346,13 @@ ip route add 128.0.0.0/1 dev {awg_iface}
 echo "-> Routing configured successfully. All traffic is now secured."
 echo "-> VPN is running in the background. Use 'disconnect' to stop."
 """
-            subprocess.run(self._elevate(["sh", "-c", script]))
+            result = subprocess.run(self._elevate(["sh", "-c", script]))
+            if result.returncode != 0:
+                try:
+                    os.remove(self.state_file)
+                except FileNotFoundError:
+                    pass
+                sys.exit(result.returncode)
             
             # Launch PID scanner in background if needed
             if exclude_apps:
