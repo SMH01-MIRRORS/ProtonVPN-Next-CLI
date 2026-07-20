@@ -7,6 +7,7 @@ MAKEFLAGS += -j$(NPROCS)
 # Go build flags for maximum compilation speed and smaller binaries (speeds up PyInstaller)
 GO_LDFLAGS := -s -w
 GO_BUILD_CMD := go build -p $(NPROCS) -ldflags="$(GO_LDFLAGS)" -trimpath
+LINUX_GO_BUILD_CMD := CGO_ENABLED=0 $(GO_BUILD_CMD)
 
 PREFIX ?= /usr
 DESTDIR ?=
@@ -18,7 +19,7 @@ BINDIR ?= $(PREFIX)/bin
 all: build
 
 build:
-	cd engine && $(GO_BUILD_CMD) -o pvpn-engine helper.go setup_linux.go
+	cd engine && $(LINUX_GO_BUILD_CMD) -o pvpn-engine helper.go setup_linux.go
 
 build-windows-docker:
 	DOCKER_BUILDKIT=1 docker build --build-arg NPROCS=$(NPROCS) -f Dockerfile.windows --output dist/ .
@@ -33,7 +34,7 @@ build-windows:
 	./.venv/bin/python -m PyInstaller --noconfirm --onedir --name pvpn-next --icon=icon.ico --version-file version_info.txt --add-data "engine/pvpn-engine.exe:engine" --add-data "engine/wintun.dll:engine" pvpn-next
 
 build-linux-bin:
-	cd engine && $(GO_BUILD_CMD) -o pvpn-engine helper.go setup_linux.go
+	cd engine && $(LINUX_GO_BUILD_CMD) -o pvpn-engine helper.go setup_linux.go
 	python3 -m venv .venv
 	./.venv/bin/python -m ensurepip --upgrade
 	./.venv/bin/python -m pip install pyinstaller
