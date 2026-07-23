@@ -1,5 +1,25 @@
 # PVPN-Next CLI
 
+> [!IMPORTANT]
+> **Project Transferred to GitLab / Проект перенесен на GitLab**
+>
+> **English:**
+> This project has moved from Codeberg to [GitLab](https://gitlab.com/SMH01/pvpn-next-cli).
+>
+> **Reason:** We are migrating due to Codeberg's new restrictive policies regarding AI-generated content. As PVPN-Next-CLI is a project 100% created and maintained by AI agents, it falls under the "Projects that are created by LLM agents in autonomous ways" and "Projects written and maintained with heavy use of LLMs" categories, which are now discouraged or prohibited on Codeberg.
+>
+> **GitLab URL:** [https://gitlab.com/SMH01/pvpn-next-cli](https://gitlab.com/SMH01/pvpn-next-cli)
+>
+> ---
+>
+> **Русский:**
+> Этот проект переехал с Codeberg на [GitLab](https://gitlab.com/SMH01/pvpn-next-cli).
+>
+> **Причина:** Переезд связан с новой политикой Codeberg в отношении контента, созданного ИИ. Поскольку PVPN-Next-CLI на 100% создан и поддерживается ИИ-агентами, он попадает под категории «Проекты, созданные LLM-агентами автономно» и «Проекты, написанные и поддерживаемые с активным использованием LLM», которые теперь ограничены на Codeberg.
+>
+> **Ссылка на GitLab:** [https://gitlab.com/SMH01/pvpn-next-cli](https://gitlab.com/SMH01/pvpn-next-cli)
+
+
 PVPN-Next CLI is a powerful, unofficial cross-platform command-line client for PVPN. It provides seamless integration with Proton's API and utilizes a robust custom Go-based engine to establish fast, secure AmneziaWG connections.
 
 ## Features
