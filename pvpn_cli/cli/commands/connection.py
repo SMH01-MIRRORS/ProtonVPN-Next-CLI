@@ -122,7 +122,7 @@ def do_status():
         "0": "Direct (vpn-api.proton.me)",
         "1": "Cloudflare Proxy (api.protonnext.qzz.io)",
         "2": "Netlify Proxy (shimmering-stroopwafel-51675e.netlify.app)",
-        "3": "Deno Proxy (quick-bluejay-8760.smh01-mirrors.deno.net)"
+        "3": "Deno Proxy (protonvpn-next-mirror-yq0w6dbkxg4j.smh01-mirrors.deno.net)"
     }
     bypass_desc = bypass_map.get(bypass_val, "Unknown")
     print(f"[Network] Bypass: {bypass_desc}")
