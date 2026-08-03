@@ -24,8 +24,17 @@ def scrub_data(data):
         return [scrub_data(item) for item in data]
     return data
 
+# Exceptions that represent normal user/OS driven termination, not defects.
+IGNORED_EXCEPTIONS = (KeyboardInterrupt, SystemExit, BrokenPipeError)
+
 def before_send(event, hint):
     """Sentry hook to filter events before sending."""
+    # Drop user-initiated interruptions (Ctrl+C, closed pipe, clean exit).
+    # These were reported as errors CLI-8 / CLI-9 / CLI-A but are expected behaviour.
+    exc_info = hint.get("exc_info") if hint else None
+    if exc_info and isinstance(exc_info[1], IGNORED_EXCEPTIONS):
+        return None
+
     # Scrub headers in request
     request = event.get("request")
     if request and "headers" in request:
