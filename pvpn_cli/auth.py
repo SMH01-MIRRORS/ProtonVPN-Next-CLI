@@ -18,7 +18,7 @@ class ProtonAuthApi:
         elif bypass in ("2", "netlify"):
             self.BASE_URL = "https://shimmering-stroopwafel-51675e.netlify.app"
         elif bypass in ("3", "deno"):
-            self.BASE_URL = "https://protonvpn-next-mirror-yq0w6dbkxg4j.smh01-mirrors.deno.net"
+            self.BASE_URL = "https://protonvpn-next-mirror.smh01-mirrors.deno.net"
         else:
             self.BASE_URL = "https://vpn-api.proton.me"
         
@@ -161,7 +161,7 @@ class ProtonAuthApi:
             
         from .captcha import CaptchaProxyServer
         # For simplicity, we use deno proxy to circumvent DPI
-        proxy = CaptchaProxyServer("https://protonvpn-next-mirror-yq0w6dbkxg4j.smh01-mirrors.deno.net", session_id, user_agent=self.headers.get("User-Agent"))
+        proxy = CaptchaProxyServer("https://protonvpn-next-mirror.smh01-mirrors.deno.net", session_id, user_agent=self.headers.get("User-Agent"))
         token = proxy.start_and_wait(web_url)
         return token
 

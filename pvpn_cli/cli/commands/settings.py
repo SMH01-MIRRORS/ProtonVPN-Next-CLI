@@ -19,8 +19,8 @@ def do_set_bypass(bypass: str):
         "cloudflare": ("1", "Cloudflare Proxy (api.protonnext.qzz.io)"),
         "2": ("2", "Netlify Proxy (shimmering-stroopwafel-51675e.netlify.app)"),
         "netlify": ("2", "Netlify Proxy (shimmering-stroopwafel-51675e.netlify.app)"),
-        "3": ("3", "Deno Proxy (protonvpn-next-mirror-yq0w6dbkxg4j.smh01-mirrors.deno.net)"),
-        "deno": ("3", "Deno Proxy (protonvpn-next-mirror-yq0w6dbkxg4j.smh01-mirrors.deno.net)")
+        "3": ("3", "Deno Proxy (protonvpn-next-mirror.smh01-mirrors.deno.net)"),
+        "deno": ("3", "Deno Proxy (protonvpn-next-mirror.smh01-mirrors.deno.net)")
     }
     
     if bypass_lower not in mapping:
