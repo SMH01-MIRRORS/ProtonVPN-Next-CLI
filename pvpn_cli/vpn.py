@@ -17,7 +17,7 @@ class ProtonVpnApi:
         elif bypass in ("2", "netlify"):
             self.BASE_URL = "https://shimmering-stroopwafel-51675e.netlify.app"
         elif bypass in ("3", "deno"):
-            self.BASE_URL = "https://protonvpn-next-mirror.smh01-mirrors.deno.net"
+            self.BASE_URL = "https://protonvpn-next-web--main.smh01-mirrors.deno.net/api"
         else:
             self.BASE_URL = "https://vpn-api.proton.me"
 

@@ -19,7 +19,7 @@ class CaptchaProxyServer:
         elif bypass in ("2", "netlify"):
             self.proxy_base = "https://shimmering-stroopwafel-51675e.netlify.app"
         elif bypass in ("3", "deno"):
-            self.proxy_base = "https://protonvpn-next-mirror.smh01-mirrors.deno.net"
+            self.proxy_base = "https://protonvpn-next-web--main.smh01-mirrors.deno.net/api"
         else:
             self.proxy_base = proxy_base.rstrip('/')
         self.session_id = session_id
