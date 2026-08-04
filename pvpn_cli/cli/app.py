@@ -53,6 +53,7 @@ from pvpn_cli.cli.commands.split_tunnel import (
     do_split_tunneling,
 )
 from pvpn_cli.cli.commands.wizard import do_autosetup, do_grant_privileges
+from pvpn_cli.privileged_service import install_privileged_service, run_privileged_service
 
 
 def do_version():
@@ -60,6 +61,15 @@ def do_version():
 
 
 def run_cli(args_list=None):
+    # Broker children start as root only so they can later perform networking.
+    # Parse configuration and build the connection as the desktop user first;
+    # do_connect/do_disconnect regain euid 0 only for the routing phase.
+    if os.environ.get("PVPN_SERVICE_CHILD") == "1" and os.geteuid() == 0:
+        import pwd
+        service_user = os.environ.get("SUDO_USER")
+        if not service_user or service_user == "root":
+            raise RuntimeError("Privileged service child has no desktop identity")
+        os.seteuid(pwd.getpwnam(service_user).pw_uid)
     fix_config_permissions()
     parser = argparse.ArgumentParser(description="PVPN Next CLI")
     parser.add_argument("--config-dir", type=str, help="Override default configuration directory")
@@ -174,8 +184,12 @@ def run_cli(args_list=None):
     # trigger-captcha command
     subparsers.add_parser("trigger-captcha", help="Trigger a Captcha by spoofing an Android Emulator")
     
-    # grant-privileges command
-    subparsers.add_parser("grant-privileges", help="[Linux] Setup sudo/doas to run VPN without password prompts")
+    # Restricted Linux networking broker. The legacy command is retained only
+    # to point users away from unsafe NOPASSWD rules.
+    subparsers.add_parser("grant-privileges", help="[Deprecated] Show the safe system-service replacement")
+    install_service_parser = subparsers.add_parser("install-service", help="[Linux] Install the restricted system service")
+    install_service_parser.add_argument("--user", help="Desktop user allowed to access the service")
+    subparsers.add_parser("privileged-service", help=argparse.SUPPRESS)
     
     # autosetup command
     parser_autosetup = subparsers.add_parser("autosetup", help="Interactive auto-setup wizard (login, cert, servers, locale)")
@@ -339,10 +353,14 @@ def run_cli(args_list=None):
         do_trigger_captcha()
     elif args.command == "grant-privileges":
         do_grant_privileges()
+    elif args.command == "install-service":
+        install_privileged_service(args.user)
+    elif args.command == "privileged-service":
+        run_privileged_service()
     else:
         parser.print_help()
     
-    if args.command not in ("_daemon", "connect", "disconnect", "api-server", "_watchdog", "_install-watchdog") and os.environ.get("PVPN_GUI_MODE") != "1":
+    if args.command not in ("_daemon", "connect", "disconnect", "api-server", "privileged-service", "_watchdog", "_install-watchdog") and os.environ.get("PVPN_GUI_MODE") != "1":
         ensure_daemon_running()
 
 
@@ -359,7 +377,8 @@ def main():
     # a terminal emulator: the caller waits for our output and exit code.
     already_root = hasattr(os, "geteuid") and os.geteuid() == 0
     gui_invocation = "--gui" in sys.argv or "--gui-mode" in sys.argv or os.environ.get("PVPN_GUI_MODE") == "1"
-    if not sys.stdin.isatty() and sys.platform != "win32" and not already_root and "_daemon" not in sys.argv and not gui_invocation:
+    service_invocation = "privileged-service" in sys.argv
+    if not sys.stdin.isatty() and sys.platform != "win32" and not already_root and "_daemon" not in sys.argv and not service_invocation and not gui_invocation:
         import shutil
         terminals = [
             ("gnome-terminal", ["--"]),

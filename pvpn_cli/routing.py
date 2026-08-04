@@ -10,6 +10,8 @@ import shutil
 import stat
 import tempfile
 import shlex
+import ipaddress
+import re
 from typing import Optional, List, Tuple
 
 def get_config_dir() -> str:
@@ -43,13 +45,33 @@ def get_config_dir() -> str:
     return d
 
 
-def build_linux_engine_launch_command(engine_path: str, dns_ips: str, config_path: str, log_path: str, client_log_path: str) -> str:
-    """Build a shell-safe background engine launch command."""
-    quote = shlex.quote
-    return (
-        f"nohup {quote(engine_path)} -dns {quote(dns_ips)} "
-        f"< {quote(config_path)} > {quote(log_path)} 2> {quote(client_log_path)} &"
-    )
+def open_regular_no_follow(path: str, flags: int, mode: str, permissions: int = 0o600):
+    """Open one regular file without following symlinks or hard links."""
+    safe_flags = flags | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, safe_flags, permissions)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise RuntimeError(f"Unsafe file rejected: {path}")
+        return os.fdopen(fd, mode)
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def launch_linux_engine(engine_path: str, dns_ips: str, config_path: str, log_path: str, client_log_path: str):
+    """Launch the engine with argv and pre-opened safe files, never a root shell."""
+    with open_regular_no_follow(config_path, os.O_RDONLY, "rb") as config_file, \
+         open_regular_no_follow(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, "wb") as log_file, \
+         open_regular_no_follow(client_log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, "wb") as client_log:
+        return subprocess.Popen(
+            [engine_path, "-dns", dns_ips],
+            stdin=config_file,
+            stdout=log_file,
+            stderr=client_log,
+            close_fds=True,
+            start_new_session=True,
+        )
 
 
 def stage_frozen_engine(engine_path: str, runtime_dir: str = "/run/pvpn-next") -> str:
@@ -172,28 +194,51 @@ class RoutingManager:
         ips = []
         apps = []
         for item in items:
-            if item["type"] == "ip":
-                ips.append(item["value"])
-            elif item["type"] == "domain":
+            if not isinstance(item, dict):
+                continue
+            item_type = item.get("type")
+            value = item.get("value")
+            if not isinstance(value, str):
+                continue
+            if item_type == "ip":
                 try:
-                    resolved = socket.gethostbyname_ex(item["value"])[2]
-                    ips.extend(resolved)
-                    print(f"-> Resolved domain {item['value']} to {resolved}")
-                except socket.gaierror:
-                    print(f"[WARNING] Could not resolve domain: {item['value']}")
-            elif item["type"] == "app":
-                apps.append(item["value"])
+                    ips.append(str(ipaddress.ip_network(value, strict=False)))
+                except ValueError:
+                    print(f"[WARNING] Ignoring invalid split-tunnel network: {value}")
+            elif item_type == "domain":
+                try:
+                    resolved = socket.gethostbyname_ex(value)[2]
+                    ips.extend(str(ipaddress.ip_address(ip)) for ip in resolved)
+                    print(f"-> Resolved domain {value} to {resolved}")
+                except (socket.gaierror, ValueError):
+                    print(f"[WARNING] Could not resolve domain: {value}")
+            elif item_type == "app":
+                apps.append(value)
         return ips, apps
 
-    def start_vpn(self, vpn_ip: str, engine_path: str, config_path: str, log_path: str, awg_ip: str = "10.2.0.2", awg_iface: str = "awg0", dns_ips: str = "10.2.0.1"):
+    def start_vpn(self, vpn_ip: str, engine_path: str, config_path: str, log_path: str, awg_ip: str = "10.2.0.2", awg_iface: str = "awg0", dns_ips: str = "10.2.0.1", split_cfg=None, db_allow_lan=None):
+        # The broker reads server/settings data from a user-owned database. Treat
+        # every networking value as untrusted before it reaches the root shell.
+        try:
+            vpn_ip = str(ipaddress.ip_address(vpn_ip))
+            awg_ip = str(ipaddress.ip_address(awg_ip))
+        except ValueError as exc:
+            raise RuntimeError("Invalid VPN address") from exc
+        if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,15}", awg_iface):
+            raise RuntimeError("Invalid VPN interface name")
         print(f"-> Setting up traffic routing for {vpn_ip}...")
         
-        split_cfg = self._get_split_config()
+        if split_cfg is None:
+            split_cfg = self._get_split_config()
         exclude_ips, exclude_apps = self._resolve_ips(split_cfg.get("split_items", []))
-        from pvpn_cli.database import Database
-        db_allow_lan = Database().get_setting("allow_lan", "false") == "true"
+        if db_allow_lan is None:
+            from pvpn_cli.database import Database
+            db_allow_lan = Database().get_setting("allow_lan", "false") == "true"
         exclude_lan = split_cfg.get("exclude_lan", False) or db_allow_lan
-        dns_list = [ip.strip() for ip in dns_ips.split(",") if ip.strip()]
+        try:
+            dns_list = [str(ipaddress.ip_address(ip.strip())) for ip in dns_ips.split(",") if ip.strip()]
+        except ValueError as exc:
+            raise RuntimeError("Invalid DNS address") from exc
         
         engine_running = False
         try:
@@ -219,7 +264,9 @@ class RoutingManager:
                 sys.exit(1)
                 
             state["gw"] = gw
-            with open(self.state_file, "w") as f:
+            with open_regular_no_follow(
+                self.state_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, "w"
+            ) as f:
                 json.dump(state, f)
             
             # Windows execution (assumes running as Admin)
@@ -319,6 +366,17 @@ class RoutingManager:
             if not gw or not iface:
                 print("[ERROR] Could not detect default Linux gateway.")
                 sys.exit(1)
+            try:
+                gw = str(ipaddress.ip_address(gw))
+            except ValueError as exc:
+                raise RuntimeError("Invalid default gateway") from exc
+            if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,15}", iface):
+                raise RuntimeError("Invalid physical interface name")
+            if exclude_apps and os.environ.get("PVPN_SERVICE_CHILD") == "1":
+                raise RuntimeError(
+                    "App-based split tunneling is not available through the hardened service; "
+                    "use LAN, IP or domain exclusions"
+                )
                 
             state["gw"] = gw
             state["iface"] = iface
@@ -326,11 +384,13 @@ class RoutingManager:
             # Setup bash commands for excluded IPs and LAN
             split_cmds = []
             for ip in exclude_ips:
-                split_cmds.append(f"ip route add {ip} via {gw} dev {iface}")
+                split_cmds.append(
+                    f"ip route add {shlex.quote(ip)} via {shlex.quote(gw)} dev {shlex.quote(iface)}"
+                )
             if exclude_lan:
-                split_cmds.append(f"ip route add 10.0.0.0/8 via {gw} dev {iface}")
-                split_cmds.append(f"ip route add 172.16.0.0/12 via {gw} dev {iface}")
-                split_cmds.append(f"ip route add 192.168.0.0/16 via {gw} dev {iface}")
+                split_cmds.append(f"ip route add 10.0.0.0/8 via {shlex.quote(gw)} dev {shlex.quote(iface)}")
+                split_cmds.append(f"ip route add 172.16.0.0/12 via {shlex.quote(gw)} dev {shlex.quote(iface)}")
+                split_cmds.append(f"ip route add 192.168.0.0/16 via {shlex.quote(gw)} dev {shlex.quote(iface)}")
                 
             if exclude_apps:
                 state["cgroup_created"] = True
@@ -340,7 +400,7 @@ class RoutingManager:
                     # Enable fwmark matching for this cgroup
                     "iptables -t mangle -C OUTPUT -m cgroup --path protonvpn_exclude -j MARK --set-mark 51820 2>/dev/null || iptables -t mangle -A OUTPUT -m cgroup --path protonvpn_exclude -j MARK --set-mark 51820",
                     "ip rule add fwmark 51820 table 200",
-                    f"ip route add default via {gw} dev {iface} table 200"
+                    f"ip route add default via {shlex.quote(gw)} dev {shlex.quote(iface)} table 200"
                 ])
                 
             split_cmds_str = "\n".join(split_cmds)
@@ -350,64 +410,67 @@ class RoutingManager:
             state["ipv6_disabled_originally"] = False
             state["dns_backup"] = False
             
-            with open(self.state_file, "w") as f:
+            with open_regular_no_follow(
+                self.state_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, "w"
+            ) as f:
                 json.dump(state, f)
             client_log_path = log_path.replace("awg.log", "client.log")
             
             dns_setup_script = ""
             if dns_list:
-                dns_ips_space = " ".join(dns_list)
+                dns_ips_space = " ".join(shlex.quote(ip) for ip in dns_list)
                 dns_setup_script = f"""
 if command -v resolvectl >/dev/null 2>&1; then
-    resolvectl dns {awg_iface} {dns_ips_space}
-    resolvectl domain {awg_iface} ~\\.
-    PHYSICAL_DNS=$(resolvectl status {iface} 2>/dev/null | grep 'DNS Servers' | awk '{{print $3, $4, $5}}')
+    resolvectl dns {shlex.quote(awg_iface)} {dns_ips_space}
+    resolvectl domain {shlex.quote(awg_iface)} ~\\.
+    PHYSICAL_DNS=$(resolvectl status {shlex.quote(iface)} 2>/dev/null | grep 'DNS Servers' | awk '{{print $3, $4, $5}}')
 else
     PHYSICAL_DNS=$(grep -Eo '[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+' /etc/resolv.conf 2>/dev/null)
 fi
 
 for ip in $PHYSICAL_DNS; do
     if [[ "$ip" != 127.* ]]; then
-        ip route add $ip/32 dev {awg_iface} 2>/dev/null || true
+        ip route add "$ip/32" dev {shlex.quote(awg_iface)} 2>/dev/null || true
     fi
 done
 """
                     
             if not engine_running:
                 engine_path = stage_frozen_engine(engine_path)
-            engine_cmd = ""
-            if not engine_running:
-                launch_command = build_linux_engine_launch_command(
+                subprocess.run(
+                    self._elevate(["ip", "link", "delete", awg_iface]), capture_output=True
+                )
+                engine_process = launch_linux_engine(
                     engine_path, dns_ips, config_path, log_path, client_log_path
                 )
-                engine_cmd = (
-                    f"ip link delete {shlex.quote(awg_iface)} 2>/dev/null || true\n"
-                    f"{launch_command}\n"
-                    "engine_pid=$!\n"
-                    "sleep 0.2\n"
-                    'if ! kill -0 "$engine_pid" 2>/dev/null; then\n'
-                    '    echo "[ERROR] VPN engine exited immediately after launch." >&2\n'
-                    f"    cat {shlex.quote(client_log_path)} >&2\n"
-                    "    exit 1\n"
-                    "fi"
-                )
+                import time
+                time.sleep(0.2)
+                if engine_process.poll() is not None:
+                    try:
+                        with open_regular_no_follow(client_log_path, os.O_RDONLY, "r") as errors:
+                            details = errors.read()
+                    except Exception:
+                        details = ""
+                    raise RuntimeError(
+                        "VPN engine exited immediately after launch"
+                        + (f": {details.strip()}" if details else "")
+                    )
             script = f"""
-{engine_cmd}
 # Wait for the userspace engine to create its TUN interface.
 for i in $(seq 1 30); do
-    ip link show {awg_iface} >/dev/null 2>&1 && break
+    ip link show {shlex.quote(awg_iface)} >/dev/null 2>&1 && break
     sleep 0.5
 done
-if ! ip link show {awg_iface} >/dev/null 2>&1; then
+if ! ip link show {shlex.quote(awg_iface)} >/dev/null 2>&1; then
     cat {shlex.quote(client_log_path)} >&2
     exit 1
 fi
-ip -6 route add default dev {awg_iface} metric 1 2>/dev/null || true
+ip -6 route add default dev {shlex.quote(awg_iface)} metric 1 2>/dev/null || true
 {dns_setup_script}
-ip route add {vpn_ip} via {gw} dev {iface}
+ip route add {shlex.quote(vpn_ip)} via {shlex.quote(gw)} dev {shlex.quote(iface)}
 {split_cmds_str}
-ip route add 0.0.0.0/1 dev {awg_iface}
-ip route add 128.0.0.0/1 dev {awg_iface}
+ip route add 0.0.0.0/1 dev {shlex.quote(awg_iface)}
+ip route add 128.0.0.0/1 dev {shlex.quote(awg_iface)}
 echo "-> Routing configured successfully. All traffic is now secured."
 echo "-> VPN is running in the background. Use 'disconnect' to stop."
 """
@@ -432,7 +495,7 @@ echo "-> VPN is running in the background. Use 'disconnect' to stop."
             return
             
         try:
-            with open(self.state_file, "r") as f:
+            with open_regular_no_follow(self.state_file, os.O_RDONLY, "r") as f:
                 state = json.load(f)
         except:
             return

@@ -267,7 +267,10 @@ def do_connect(server_name: str, awg_str: str, port=None):
     
     config_dir = get_config_dir()
     config_path = os.path.join(config_dir, "connection.conf")
-    with open(config_path, "w") as f:
+    from pvpn_cli.routing import open_regular_no_follow
+    with open_regular_no_follow(
+        config_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, "w"
+    ) as f:
         f.write(config)
     print(f"-> Saved AWG configuration to {config_path}")
     
@@ -279,6 +282,7 @@ def do_connect(server_name: str, awg_str: str, port=None):
     import shutil
     
     is_windows = platform.system() == "Windows"
+    service_child = os.environ.get("PVPN_SERVICE_CHILD") == "1"
     elevate_cmd = ""
     
     if is_windows:
@@ -289,7 +293,7 @@ def do_connect(server_name: str, awg_str: str, port=None):
             args.append(f"--port={port}")
         elevate_if_needed_windows(args)
     else:
-        if os.geteuid() != 0:
+        if os.geteuid() != 0 and not service_child:
             args = ["connect", server_name]
             if awg_str:
                 args.append(f"awg={awg_str}")
@@ -317,9 +321,23 @@ def do_connect(server_name: str, awg_str: str, port=None):
         
     db.set_setting("active_server_name", server_name)
     db.set_setting("current_real_ip", "")
-        
+
+    # Read all user-owned configuration before the broker child regains root.
+    prepared_split_cfg = rm._get_split_config()
+    prepared_allow_lan = db.get_setting("allow_lan", "false") == "true"
+    if service_child:
+        os.seteuid(0)
+
     try:
-        rm.start_vpn(vpn_ip=entry_ip, engine_path=engine_path, config_path=config_path, log_path=log_path, dns_ips=dns_ips)
+        rm.start_vpn(
+            vpn_ip=entry_ip,
+            engine_path=engine_path,
+            config_path=config_path,
+            log_path=log_path,
+            dns_ips=dns_ips,
+            split_cfg=prepared_split_cfg,
+            db_allow_lan=prepared_allow_lan,
+        )
         if is_windows:
             try:
                 from pvpn_cli.watchdog import Watchdog
@@ -336,8 +354,13 @@ def do_disconnect(exit_on_success=True):
     import shutil
 
     is_windows = platform.system() == "Windows"
+    service_child = os.environ.get("PVPN_SERVICE_CHILD") == "1"
+    caller_euid = os.geteuid() if hasattr(os, "geteuid") else None
     elevate_cmd = ""
-    
+
+    if service_child and caller_euid != 0:
+        os.seteuid(0)
+
     if is_windows:
         elevate_if_needed_windows(["disconnect"], exit_on_success=exit_on_success)
     else:
@@ -378,3 +401,5 @@ def do_disconnect(exit_on_success=True):
             subprocess.run(pkill_cmd)
             
     print("-> VPN disconnected.", flush=True)
+    if service_child and caller_euid not in (None, 0):
+        os.seteuid(caller_euid)

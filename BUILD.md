@@ -79,5 +79,7 @@ Because Woodpecker primarily utilizes Linux runners, the pipeline is configured 
 
 The repository also includes configuration files for native Linux package managers:
 
-- **NixOS**: Use `flake.nix` to build or run the package within a reproducible Nix environment.
-- **Arch Linux**: A `PKGBUILD` is provided to build and install the application using `makepkg`.
+- **NixOS**: Use the exported `nixosModules.default` module for the package, restricted system service, group and users.
+- **Arch Linux**: The `PKGBUILD` installs the restricted systemd service without creating a `NOPASSWD` rule.
+
+See [`docs/linux-privileged-service.md`](docs/linux-privileged-service.md) for Arch, Debian/Ubuntu, standalone binary and NixOS setup.

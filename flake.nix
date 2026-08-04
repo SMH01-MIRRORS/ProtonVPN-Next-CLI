@@ -73,5 +73,7 @@
             };
           };
         });
+
+      nixosModules.default = import ./nix/module.nix { inherit self; };
     };
 }

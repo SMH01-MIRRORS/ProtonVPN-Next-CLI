@@ -6,11 +6,11 @@ import tempfile
 import unittest
 from unittest import mock
 
-from pvpn_cli.routing import build_linux_engine_launch_command, stage_frozen_engine
+from pvpn_cli.routing import RoutingManager, launch_linux_engine, open_regular_no_follow, stage_frozen_engine
 
 
 class LinuxEngineLaunchTest(unittest.TestCase):
-    def test_launch_command_handles_spaces_in_every_path(self):
+    def test_engine_launch_handles_spaces_without_a_shell(self):
         with tempfile.TemporaryDirectory(prefix="pvpn project ") as root:
             engine = os.path.join(root, "engine with spaces")
             config = os.path.join(root, "connection config")
@@ -22,14 +22,51 @@ class LinuxEngineLaunchTest(unittest.TestCase):
             with open(config, "w", encoding="utf-8") as source:
                 source.write("config")
 
-            command = build_linux_engine_launch_command(
+            process = launch_linux_engine(
                 engine, "1.1.1.1, 1.0.0.1", config, log, client_log
             )
-            subprocess.run(["sh", "-c", command + "\nwait"], check=True)
+            self.assertEqual(0, process.wait(timeout=2))
             with open(log, encoding="utf-8") as output:
                 self.assertEqual("engine:1.1.1.1, 1.0.0.1", output.read())
             with open(client_log, encoding="utf-8") as errors:
                 self.assertEqual("", errors.read())
+
+    def test_sensitive_output_symlinks_are_rejected(self):
+        with tempfile.TemporaryDirectory() as root:
+            target = os.path.join(root, "target")
+            link = os.path.join(root, "link")
+            with open(target, "w", encoding="utf-8") as output:
+                output.write("do not overwrite")
+            os.symlink(target, link)
+            with self.assertRaises(OSError):
+                open_regular_no_follow(
+                    link, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, "w"
+                )
+            with open(target, encoding="utf-8") as output:
+                self.assertEqual("do not overwrite", output.read())
+
+
+class RootInputValidationTest(unittest.TestCase):
+    def test_split_network_rejects_shell_injection(self):
+        with tempfile.TemporaryDirectory() as root, mock.patch.dict(
+            os.environ, {"PVPN_CONFIG_DIR": root}
+        ):
+            manager = RoutingManager("")
+            ips, _apps = manager._resolve_ips([
+                {"type": "ip", "value": "10.0.0.0/8; touch /root/pwned"},
+                {"type": "ip", "value": "192.168.1.1/24"},
+            ])
+        self.assertEqual(["192.168.1.0/24"], ips)
+
+    def test_invalid_vpn_address_is_rejected_before_root_commands(self):
+        with tempfile.TemporaryDirectory() as root, mock.patch.dict(
+            os.environ, {"PVPN_CONFIG_DIR": root}
+        ):
+            manager = RoutingManager("")
+            with self.assertRaisesRegex(RuntimeError, "Invalid VPN address"):
+                manager.start_vpn(
+                    "1.2.3.4; id", "/engine", "/config", "/log"
+                )
 
 
 class FrozenEngineStagingTest(unittest.TestCase):

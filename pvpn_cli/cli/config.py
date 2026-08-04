@@ -55,12 +55,12 @@ def fix_config_permissions():
 
     config_dir = get_config_dir()
     try:
-        os.chown(config_dir, uid, gid)
-        for root, dirs, files in os.walk(config_dir):
+        os.lchown(config_dir, uid, gid)
+        for root, dirs, files in os.walk(config_dir, followlinks=False):
             for d in dirs:
-                os.chown(os.path.join(root, d), uid, gid)
+                os.lchown(os.path.join(root, d), uid, gid)
             for f in files:
-                os.chown(os.path.join(root, f), uid, gid)
+                os.lchown(os.path.join(root, f), uid, gid)
     except Exception:
         pass
 

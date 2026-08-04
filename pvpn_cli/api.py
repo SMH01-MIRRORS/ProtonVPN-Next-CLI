@@ -306,6 +306,21 @@ def run_cli_elevated(args, sudo_password=None):
     full_cmd = base_cmd + [config_arg, "--gui-mode"] + args
 
     if sys.platform == "linux":
+        # Prefer the narrowly scoped root broker. It accepts only connect and
+        # disconnect, so the GUI never needs a reusable NOPASSWD rule.
+        if args and args[0] in ("connect", "disconnect"):
+            from pvpn_cli.privileged_service import (
+                PrivilegedServiceError,
+                PrivilegedServiceUnavailable,
+                call_privileged_service,
+            )
+            try:
+                return call_privileged_service(args, get_config_dir())
+            except PrivilegedServiceUnavailable:
+                pass  # Optional service is absent; use interactive elevation.
+            except PrivilegedServiceError as exc:
+                raise RuntimeError(str(exc)) from exc
+
         env = os.environ.copy()
         for k in ["_MEIPASS", "_MEIPASS1", "_MEIPASS2", "_MEIPASS3"]:
             env.pop(k, None)

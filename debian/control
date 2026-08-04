@@ -8,7 +8,8 @@ Homepage: https://github.com/smh01/PVPN-Next-CLI
 
 Package: pvpn-next
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, python3, python3-cryptography, python3-babel, sudo | doas
+Depends: ${shlibs:Depends}, ${misc:Depends}, python3, python3-cryptography, python3-babel, iproute2
+Recommends: systemd, sudo | doas
 Description: Next-generation CLI for PVPN
  A lightweight, high-performance CLI client for PVPN featuring
  native AmneziaWG connections, API block bypass, and cross-platform

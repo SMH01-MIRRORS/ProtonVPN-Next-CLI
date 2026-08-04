@@ -112,6 +112,23 @@ def elevate_command_linux(cmd_args):
     if os.geteuid() == 0:
         return False
 
+    if cmd_args and cmd_args[0] in ("connect", "disconnect"):
+        from pvpn_cli.privileged_service import (
+            PrivilegedServiceError,
+            PrivilegedServiceUnavailable,
+            call_privileged_service,
+        )
+        try:
+            output = call_privileged_service(cmd_args, get_config_dir())
+            if output:
+                print(output, end="" if output.endswith("\n") else "\n")
+            return True
+        except PrivilegedServiceUnavailable:
+            pass
+        except PrivilegedServiceError as exc:
+            print(f"[ERROR] Privileged service failed: {exc}")
+            sys.exit(1)
+
     elevate_cmd = "doas" if shutil.which("doas") else ("sudo" if shutil.which("sudo") else None)
     if elevate_cmd:
         print(f"-> Elevating privileges using {elevate_cmd}...")

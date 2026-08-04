@@ -38,6 +38,11 @@ PVPN-Next CLI is a powerful, unofficial cross-platform command-line client for P
 - **Device Spoofing**: Masks API calls with Android device fingerprints to blend in with official app traffic.
 - **Mandatory DNS-over-HTTPS**: Public hostnames are always resolved through encrypted DoH using direct bootstrap IPs. Plain ISP DNS fallback and a disable option are intentionally not provided.
 - **API Bypass Routing**: Multiple fallback endpoints (Cloudflare, Netlify, Deno) to circumvent API blocks in censored regions.
+- **Restricted Linux Service**: Optional systemd broker performs only validated connect/disconnect operations, eliminating per-connection password prompts without a `NOPASSWD` sudo/doas rule.
+
+## Linux system service
+
+For passwordless Desktop/CLI connection management, install the restricted broker once. It uses a protected Unix socket and does not expose arbitrary root command execution. See [`docs/linux-privileged-service.md`](docs/linux-privileged-service.md) for standalone, Arch, Debian/Ubuntu and NixOS instructions.
 
 ## Usage
 

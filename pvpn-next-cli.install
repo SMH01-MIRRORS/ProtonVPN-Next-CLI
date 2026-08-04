@@ -1,0 +1,20 @@
+post_install() {
+  getent group pvpn-next >/dev/null || groupadd --system pvpn-next
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl enable --now pvpn-next-privileged.service >/dev/null 2>&1 || true
+  echo "Add desktop users with: sudo usermod -aG pvpn-next <user>"
+  echo "Then log out and back in once. No NOPASSWD rule is required."
+}
+
+post_upgrade() {
+  post_install
+  systemctl try-restart pvpn-next-privileged.service >/dev/null 2>&1 || true
+}
+
+pre_remove() {
+  systemctl disable --now pvpn-next-privileged.service >/dev/null 2>&1 || true
+}
+
+post_remove() {
+  systemctl daemon-reload >/dev/null 2>&1 || true
+}

@@ -1,0 +1,16 @@
+#!/bin/sh
+set -e
+
+if ! getent group pvpn-next >/dev/null; then
+    addgroup --system pvpn-next
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload || true
+    systemctl enable --now pvpn-next-privileged.service || true
+fi
+
+echo "Add desktop users to the broker group: usermod -aG pvpn-next <user>"
+echo "Then log out and back in once. No NOPASSWD rule is required."
+
+#DEBHELPER#

@@ -1,0 +1,30 @@
+[Unit]
+Description=PVPN Next privileged networking broker
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=@LIBDIR@/pvpn-next privileged-service
+User=root
+Group=pvpn-next
+UMask=0077
+RuntimeDirectory=pvpn-next-service pvpn-next
+RuntimeDirectoryMode=0750
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=false
+ReadWritePaths=/home /run/pvpn-next /run/pvpn-next-service
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_DAC_OVERRIDE CAP_CHOWN CAP_FOWNER CAP_KILL CAP_SETUID CAP_SETGID
+
+[Install]
+WantedBy=multi-user.target

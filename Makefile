@@ -47,6 +47,7 @@ install: build
 	install -d $(DESTDIR)$(LIBDIR)/engine
 	install -d $(DESTDIR)$(LIBDIR)/pvpn_cli
 	install -d $(DESTDIR)$(BINDIR)
+	install -d $(DESTDIR)$(PREFIX)/lib/systemd/system
 
 	# Install Python modules and scripts
 	install -m 755 pvpn-next $(DESTDIR)$(LIBDIR)/pvpn-next
@@ -57,6 +58,12 @@ install: build
 
 	# Create a symlink in the binary directory
 	ln -sf $(LIBDIR)/pvpn-next $(DESTDIR)$(BINDIR)/pvpn-next
+
+	# Install the restricted systemd networking broker. Package post-install
+	# scripts create the pvpn-next group and enable the unit.
+	sed 's|@LIBDIR@|$(LIBDIR)|g' packaging/pvpn-next-privileged.service.in \
+		> $(DESTDIR)$(PREFIX)/lib/systemd/system/pvpn-next-privileged.service
+	chmod 644 $(DESTDIR)$(PREFIX)/lib/systemd/system/pvpn-next-privileged.service
 
 clean:
 	rm -f engine/pvpn-engine

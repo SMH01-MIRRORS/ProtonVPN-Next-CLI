@@ -5,8 +5,10 @@ pkgdesc="Next-generation CLI for PVPN featuring native AmneziaWG connections and
 arch=('x86_64' 'aarch64')
 url="https://github.com/smh01/PVPN-Next-CLI"
 license=('GPL-3.0-or-later')
-depends=('python' 'python-cryptography' 'python-babel' 'sudo')
+depends=('python' 'python-cryptography' 'python-babel' 'iproute2')
+optdepends=('sudo: interactive elevation fallback' 'opendoas: interactive elevation fallback' 'systemd: passwordless restricted networking broker')
 makedepends=('go' 'make')
+install=pvpn-next-cli.install
 source=("git+https://github.com/smh01/PVPN-Next-CLI.git")
 md5sums=('SKIP')
 

@@ -11,47 +11,11 @@ from pvpn_cli.cli.commands.settings import do_set_bypass
 
 
 def do_grant_privileges():
-    import shutil
-    if platform.system() != "Linux":
-        print("[ERROR] This command is only supported on Linux.")
-        return
-        
-    if getattr(sys, 'frozen', False):
-        binary_path = os.path.abspath(sys.executable)
-    else:
-        # In dev mode, we would need to grant privileges to python3, which is dangerous!
-        # It's better to just use the script path for the text output as a placeholder.
-        print("[WARNING] You are running from source code. Granting privileges to python3 is a massive security risk.")
-        print("Please compile the binary first (make build-linux-bin) and run grant-privileges from the compiled executable.")
-        binary_path = os.path.abspath(sys.argv[0])
-        
-    user = os.environ.get("SUDO_USER", os.environ.get("USER"))
-    
-    has_doas = shutil.which("doas")
-    has_sudo = shutil.which("sudo")
-    elevate_cmd = "doas" if has_doas else "sudo"
-    
-    if has_doas:
-        rule = f"permit nopass {user} as root cmd {binary_path}\n"
-        print("\n=== For doas users (e.g. NixOS, Alpine, OpenBSD) ===")
-        print("Add the following line to your /etc/doas.conf:")
-        print(f"\n    permit nopass {user} as root cmd {binary_path}")
-        print("\nNote: On NixOS, you should add this to your configuration.nix instead:")
-        print(f"  security.doas.extraRules = [")
-        print(f"    {{ groups = [ \"wheel\" ]; noPass = true; cmd = \"{binary_path}\"; }}")
-        print(f"  ];")
-
-    if has_sudo:
-        rule = f"{user} ALL=(ALL) NOPASSWD: {binary_path}\n"
-        print("\n=== For sudo users (e.g. Ubuntu, Debian, Arch) ===")
-        print("We can automatically create a rule in /etc/sudoers.d/pvpn-next")
-        try:
-            subprocess.run([elevate_cmd, "sh", "-c", f"echo '{rule}' > /etc/sudoers.d/pvpn-next"], check=True)
-            print("-> Successfully added sudoers rule!")
-        except Exception:
-            print(f"Please run this manually:\n    echo '{rule}' | sudo tee /etc/sudoers.d/pvpn-next")
-            
-    print("\nAfter granting privileges, the client will automatically execute connection tasks without asking for your password!")
+    """Keep the old command as a safe migration notice; never write sudoers."""
+    print("The insecure NOPASSWD setup has been removed.")
+    print("Install the restricted system service instead:")
+    print("  sudo pvpn-next install-service --user \"$USER\"")
+    print("or use doas/run0 in place of sudo for the one-time installation.")
 
 def do_autosetup(proxy_override=None):
     print("=== PVPN-Next Auto-Setup ===\n")
