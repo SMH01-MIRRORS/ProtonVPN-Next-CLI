@@ -1,3 +1,12 @@
+pvpn-next (1.1.0-1) unstable; urgency=medium
+
+  * Handshake-based connection verification with automatic reconnect.
+  * Restricted systemd privileged broker.
+  * Drop debian/compat; the compat level comes from debhelper-compat in
+    debian/control only.
+
+ -- SMH01 <vpn-next@outlook.com>  Tue, 04 Aug 2026 00:00:00 +0000
+
 pvpn-next (1.0.0-1) unstable; urgency=medium
 
   * Initial release.

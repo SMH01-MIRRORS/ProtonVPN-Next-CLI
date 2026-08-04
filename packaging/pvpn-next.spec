@@ -36,7 +36,9 @@ users in the pvpn-next group connect without a sudo password.
 
 %files
 %license LICENSE
-%{_libdir}/pvpn-next
+# The Makefile installs into $(PREFIX)/lib, so this must not be %{_libdir},
+# which expands to /usr/lib64 on x86_64.
+%{_prefix}/lib/pvpn-next
 %{_bindir}/pvpn-next
 %{_prefix}/lib/systemd/system/pvpn-next-privileged.service
 
