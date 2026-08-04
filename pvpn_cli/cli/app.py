@@ -355,7 +355,10 @@ def main():
             if hwnd:
                 ctypes.windll.user32.ShowWindow(hwnd, 0)
                 
-    if not sys.stdin.isatty() and sys.platform != "win32" and "_daemon" not in sys.argv and "--gui" not in sys.argv and os.environ.get("PVPN_GUI_MODE") != "1":
+    # An already elevated re-exec (sudo/doas/run0) must never bounce itself into
+    # a terminal emulator: the caller waits for our output and exit code.
+    already_root = hasattr(os, "geteuid") and os.geteuid() == 0
+    if not sys.stdin.isatty() and sys.platform != "win32" and not already_root and "_daemon" not in sys.argv and "--gui" not in sys.argv and os.environ.get("PVPN_GUI_MODE") != "1":
         import shutil
         terminals = [
             ("gnome-terminal", ["--"]),

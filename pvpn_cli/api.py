@@ -312,7 +312,11 @@ def run_cli_elevated(args, sudo_password=None):
             if subprocess.run(check_cmd, env=env, capture_output=True).returncode == 0:
                 # Use run() instead of Popen() to wait for completion and capture output.
                 # Backgrounding here causes race conditions and UI state desync.
-                res = subprocess.run([elevate_bin, "-n"] + full_cmd, env=env, capture_output=True, text=True)
+                # sudo/doas reset the environment, so PVPN_GUI_MODE has to be
+                # re-injected inside the elevated command. Without it the CLI
+                # sees a non-tty stdin, re-spawns itself in a terminal emulator
+                # and exits 0 without ever connecting.
+                res = subprocess.run([elevate_bin, "-n", "env", "PVPN_GUI_MODE=1"] + full_cmd, env=env, capture_output=True, text=True)
                 if res.returncode != 0:
                     err = res.stderr or res.stdout or f"Elevated command failed with code {res.returncode}"
                     raise Exception(err)
@@ -1119,6 +1123,31 @@ def vpn_connect():
             connect_args.append(f"--port={port}")
 
         output = run_cli_elevated(connect_args, sudo_password=data.get("sudo_password"))
+
+        # The GUI state must be settled here. Relying only on status_watcher()
+        # means a connect that never brings the tunnel up leaves the UI spinning
+        # in CONNECTING forever, and every later click gets rejected with
+        # "Connection action already in progress".
+        from pvpn_cli.routing import get_config_dir as _get_config_dir
+        routing_state_file = os.path.join(_get_config_dir(), "routing_state.json")
+        connected = False
+        deadline = time.time() + 25
+        while time.time() < deadline:
+            if os.path.exists(routing_state_file):
+                connected = True
+                break
+            time.sleep(0.5)
+
+        with status_state["lock"]:
+            status_state["vpn_state"] = "CONNECTED" if connected else "DISCONNECTED"
+        notify_status_change()
+
+        if not connected:
+            return jsonify({
+                "success": False,
+                "error": "VPN did not come up: the CLI returned without creating a tunnel.",
+                "messages": output.splitlines() if output else [],
+            }), 400
         if profile_resolution and profile_resolution.get("auto_open_url"):
             from pvpn_cli.routing import get_config_dir
             routing_file = os.path.join(get_config_dir(), "routing_state.json")
@@ -1192,6 +1221,10 @@ def status_watcher():
     db = Database()
     routing_file = os.path.join(db.db_path.replace("protonvpn.db", "routing_state.json"))
     last_exists = os.path.exists(routing_file)
+    # When a transitional state was first seen, so a stuck CONNECTING or
+    # DISCONNECTING always resyncs from disk instead of blocking the UI forever.
+    transition_since = None
+    transition_timeout = 90
 
     while True:
         time.sleep(0.5)
@@ -1200,6 +1233,12 @@ def status_watcher():
         # If state was CONNECTING/DISCONNECTING, we check if it finished
         current_state = status_state["vpn_state"]
 
+        if current_state in ("CONNECTING", "DISCONNECTING"):
+            if transition_since is None:
+                transition_since = time.time()
+        else:
+            transition_since = None
+
         changed = False
         if exists != last_exists:
             changed = True
@@ -1207,10 +1246,14 @@ def status_watcher():
             changed = True
         elif current_state == "DISCONNECTING" and not exists:
             changed = True
+        elif transition_since is not None and time.time() - transition_since > transition_timeout:
+            print(f"[Watcher] {current_state} timed out, resyncing state from disk.", flush=True)
+            changed = True
 
         if changed:
             status_state["vpn_state"] = "CONNECTED" if exists else "DISCONNECTED"
             last_exists = exists
+            transition_since = None
             notify_status_change()
 
 def run_api_server(port=34115, debug=False, api_token=None):
