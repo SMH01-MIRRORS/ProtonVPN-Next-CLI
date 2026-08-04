@@ -51,6 +51,30 @@ status_state = {
     "lock": threading.Lock()
 }
 
+# Connect/disconnect are serialized independently from the display state. The
+# display state may be reconstructed from disk after a GUI restart, so it must
+# never be used as a mutex.
+connection_operation_lock = threading.Lock()
+
+def tunnel_is_active():
+    """Return whether the tunnel is really usable, not just requested."""
+    try:
+        from pvpn_cli.routing import get_config_dir
+        state_file = os.path.join(get_config_dir(), "routing_state.json")
+        if not os.path.isfile(state_file):
+            return False
+        if sys.platform == "linux":
+            # routing_state.json is written before route setup. The interface is
+            # the authoritative completion signal and also survives API restarts.
+            return os.path.exists("/sys/class/net/awg0")
+        if sys.platform == "win32":
+            import psutil
+            return any("pvpn-engine" in (proc.info.get("name") or "").lower()
+                       for proc in psutil.process_iter(["name"]))
+        return True
+    except Exception:
+        return False
+
 # Global traffic state
 traffic_state = {
     "speed_rx": 0,
@@ -277,7 +301,9 @@ def run_cli_elevated(args, sudo_password=None):
 
     from pvpn_cli.routing import get_config_dir
     config_arg = f"--config-dir={get_config_dir()}"
-    full_cmd = base_cmd + [config_arg] + args
+    # Pass GUI mode as an argument as well as an environment variable. sudo,
+    # doas and run0 may sanitize the environment; argv is preserved.
+    full_cmd = base_cmd + [config_arg, "--gui-mode"] + args
 
     if sys.platform == "linux":
         env = os.environ.copy()
@@ -491,22 +517,7 @@ def get_current_status_dict():
             except Exception:
                 max_tier = 0
 
-        routing_file = os.path.join(db.db_path.replace("protonvpn.db", "routing_state.json"))
-        vpn_active = os.path.exists(routing_file)
-
-        if vpn_active:
-            import psutil
-            engine_running = False
-            engine_name = "pvpn-engine.exe" if sys.platform == "win32" else "pvpn-engine"
-            for proc in psutil.process_iter(['name']):
-                try:
-                    if proc.info['name'] and engine_name in proc.info['name'].lower():
-                        engine_running = True
-                        break
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                    pass
-            if not engine_running:
-                vpn_active = False
+        vpn_active = tunnel_is_active()
 
         # Logic for current state
         current_state = status_state["vpn_state"]
@@ -1033,11 +1044,7 @@ def get_recent_connections():
 
 @app.route("/api/vpn/connect", methods=["POST"])
 def vpn_connect():
-    """Trigger VPN connect via the CLI connect logic."""
-    with status_state["lock"]:
-        if status_state["vpn_state"] in ["CONNECTING", "DISCONNECTING"]:
-            return jsonify({"success": False, "error": "Connection action already in progress"}), 400
-
+    """Connect synchronously and return only after the tunnel is really up."""
     data = request.json or {}
     profile_resolution = None
     if data.get("profile_id"):
@@ -1055,63 +1062,50 @@ def vpn_connect():
 
     db = Database()
     vpn = ProtonVpnApi()
-
-    # Handle "default" or "fastest" server aliases
-    if server in ["default", "fastest"]:
-        strategy = db.get_setting("default_connect_strategy", "best")
-        if server == "fastest": strategy = "best" # UI Quick Connect always uses "best"
-
+    if server in ("default", "fastest"):
+        strategy = "best" if server == "fastest" else db.get_setting("default_connect_strategy", "best")
         if strategy == "best":
             best = vpn.get_best_server()
-            if best:
-                server = best.get("ID")
-            else:
-                return jsonify({"success": False, "error": "No servers available for your tier."}), 400
+            server = best.get("ID") if best else None
         elif strategy == "recent":
-            # Recents can reference rotated-away servers; pick the newest
-            # one that is still present in the current server list.
             recents = db.get_recent_connections(limit=5)
             server = next((r.get("id") for r in recents if r.get("available")), None)
             if not server:
-                # Fallback to best if no usable recents
                 best = vpn.get_best_server()
                 server = best.get("ID") if best else None
         elif strategy == "custom":
-            custom_id = db.get_setting("default_connect_server")
-            if custom_id:
-                server = custom_id
-            else:
+            server = db.get_setting("default_connect_server") or None
+            if not server:
                 best = vpn.get_best_server()
                 server = best.get("ID") if best else None
-
     if not server:
-         return jsonify({"success": False, "error": "Could not determine server to connect."}), 400
+        return jsonify({"success": False, "error": "Could not determine server to connect."}), 400
 
+    if not connection_operation_lock.acquire(blocking=False):
+        return jsonify({"success": False, "error": "Another VPN operation is already running"}), 409
+
+    output_parts = []
     try:
-        # Kill any stale CLI processes from previous operations
         cleanup_stale_cli_processes()
-
         db.add_recent_connection(server)
         print(f"-> GUI Connection request: {server}", flush=True)
 
-        with status_state["lock"]:
-            was_connected = status_state["vpn_state"] == "CONNECTED"
-            if was_connected:
+        # Reconnect based on actual tunnel health, not volatile API memory.
+        if tunnel_is_active():
+            with status_state["lock"]:
                 status_state["vpn_state"] = "DISCONNECTING"
-        
-        if was_connected:
             notify_status_change()
-            print(f"-> Active connection found, disconnecting first...", flush=True)
-            try:
-                # Use a specific timeout for disconnect to avoid hanging the connect request
-                run_cli_elevated(["disconnect"], sudo_password=data.get("sudo_password"))
-            except Exception as de:
-                print(f"[WARNING] Disconnect before reconnect failed: {de}", flush=True)
+            disconnect_output = run_cli_elevated(["disconnect"], sudo_password=data.get("sudo_password"))
+            if disconnect_output:
+                output_parts.append(disconnect_output)
+            deadline = time.time() + 12
+            while tunnel_is_active() and time.time() < deadline:
+                time.sleep(0.25)
+            if tunnel_is_active():
+                raise RuntimeError("The existing VPN tunnel could not be stopped")
 
-        # Update state again after potential disconnect
         with status_state["lock"]:
             status_state["vpn_state"] = "CONNECTING"
-            
         notify_status_change()
 
         connect_args = ["connect", server]
@@ -1122,79 +1116,102 @@ def vpn_connect():
         if profile_resolution is not None or port:
             connect_args.append(f"--port={port}")
 
-        output = run_cli_elevated(connect_args, sudo_password=data.get("sudo_password"))
+        connect_output = run_cli_elevated(connect_args, sudo_password=data.get("sudo_password"))
+        if connect_output:
+            output_parts.append(connect_output)
 
-        # The GUI state must be settled here. Relying only on status_watcher()
-        # means a connect that never brings the tunnel up leaves the UI spinning
-        # in CONNECTING forever, and every later click gets rejected with
-        # "Connection action already in progress".
-        from pvpn_cli.routing import get_config_dir as _get_config_dir
-        routing_state_file = os.path.join(_get_config_dir(), "routing_state.json")
-        connected = False
-        deadline = time.time() + 25
-        while time.time() < deadline:
-            if os.path.exists(routing_state_file):
-                connected = True
-                break
-            time.sleep(0.5)
+        # routing_state.json is written before route setup; wait for awg0 too.
+        deadline = time.time() + 35
+        while not tunnel_is_active() and time.time() < deadline:
+            time.sleep(0.25)
+        if not tunnel_is_active():
+            raise RuntimeError("The VPN CLI exited, but the awg0 tunnel did not come up")
 
         with status_state["lock"]:
-            status_state["vpn_state"] = "CONNECTED" if connected else "DISCONNECTED"
+            status_state["vpn_state"] = "CONNECTED"
         notify_status_change()
 
-        if not connected:
-            return jsonify({
-                "success": False,
-                "error": "VPN did not come up: the CLI returned without creating a tunnel.",
-                "messages": output.splitlines() if output else [],
-            }), 400
         if profile_resolution and profile_resolution.get("auto_open_url"):
             from pvpn_cli.routing import get_config_dir
             routing_file = os.path.join(get_config_dir(), "routing_state.json")
             ProfileService.open_url_when_connected(profile_resolution["auto_open_url"], routing_file)
-        msgs = output.splitlines() if output else []
-        response = {"success": True, "message": f"Connection to {server} initiated.", "messages": msgs}
+
+        output = "\n".join(output_parts)
+        response = {
+            "success": True,
+            "message": f"Connected to {server}.",
+            "messages": output.splitlines() if output else [],
+            "vpn_state": "CONNECTED",
+        }
         if profile_resolution:
             response["profile"] = profile_resolution["profile"]
             response["resolved_server"] = profile_resolution["server"]
         return jsonify(response)
     except SudoRequiredError:
-        status_state["vpn_state"] = "DISCONNECTED"
+        final_state = "CONNECTED" if tunnel_is_active() else "DISCONNECTED"
+        with status_state["lock"]:
+            status_state["vpn_state"] = final_state
         notify_status_change()
-        return jsonify({"success": False, "requires_password": True}), 401
-    except Exception as e:
-        status_state["vpn_state"] = "DISCONNECTED"
+        return jsonify({"success": False, "requires_password": True, "vpn_state": final_state}), 401
+    except Exception as exc:
+        final_state = "CONNECTED" if tunnel_is_active() else "DISCONNECTED"
+        with status_state["lock"]:
+            status_state["vpn_state"] = final_state
         notify_status_change()
-        return jsonify({"success": False, "error": str(e)}), 400
+        return jsonify({
+            "success": False,
+            "error": str(exc),
+            "messages": "\n".join(output_parts).splitlines(),
+            "vpn_state": final_state,
+        }), 400
+    finally:
+        connection_operation_lock.release()
+
 
 @app.route("/api/vpn/disconnect", methods=["POST"])
 def vpn_disconnect():
-    """Trigger VPN disconnect via the CLI disconnect logic."""
-    with status_state["lock"]:
-        if status_state["vpn_state"] in ["CONNECTING", "DISCONNECTING"]:
-            return jsonify({"success": False, "error": "Connection action already in progress"}), 400
-
+    """Disconnect synchronously and return only after awg0 is gone."""
+    if not connection_operation_lock.acquire(blocking=False):
+        return jsonify({"success": False, "error": "Another VPN operation is already running"}), 409
     try:
-        # Kill any stale CLI processes from previous operations
         cleanup_stale_cli_processes()
-
-        print(f"-> GUI Disconnect request", flush=True)
-
-        status_state["vpn_state"] = "DISCONNECTING"
+        print("-> GUI Disconnect request", flush=True)
+        with status_state["lock"]:
+            status_state["vpn_state"] = "DISCONNECTING"
         notify_status_change()
 
         data = request.json or {}
         output = run_cli_elevated(["disconnect"], sudo_password=data.get("sudo_password"))
-        msgs = output.splitlines() if output else []
-        return jsonify({"success": True, "message": "Disconnection initiated.", "messages": msgs})
+        deadline = time.time() + 12
+        while tunnel_is_active() and time.time() < deadline:
+            time.sleep(0.25)
+        if tunnel_is_active():
+            raise RuntimeError("The VPN tunnel did not stop")
+
+        with status_state["lock"]:
+            status_state["vpn_state"] = "DISCONNECTED"
+        notify_status_change()
+        return jsonify({
+            "success": True,
+            "message": "VPN disconnected.",
+            "messages": output.splitlines() if output else [],
+            "vpn_state": "DISCONNECTED",
+        })
     except SudoRequiredError:
-        status_state["vpn_state"] = "CONNECTED"  # rollback state
+        final_state = "CONNECTED" if tunnel_is_active() else "DISCONNECTED"
+        with status_state["lock"]:
+            status_state["vpn_state"] = final_state
         notify_status_change()
-        return jsonify({"success": False, "requires_password": True}), 401
-    except Exception as e:
-        status_state["vpn_state"] = "UNKNOWN"
+        return jsonify({"success": False, "requires_password": True, "vpn_state": final_state}), 401
+    except Exception as exc:
+        final_state = "CONNECTED" if tunnel_is_active() else "DISCONNECTED"
+        with status_state["lock"]:
+            status_state["vpn_state"] = final_state
         notify_status_change()
-        return jsonify({"success": False, "error": str(e)}), 400
+        return jsonify({"success": False, "error": str(exc), "vpn_state": final_state}), 400
+    finally:
+        connection_operation_lock.release()
+
 
 @app.route("/api/logs", methods=["GET"])
 def get_logs():
@@ -1217,43 +1234,25 @@ def get_logs():
     return jsonify(logs)
 
 def status_watcher():
-    """Background thread to watch for routing_state.json changes."""
-    db = Database()
-    routing_file = os.path.join(db.db_path.replace("protonvpn.db", "routing_state.json"))
-    last_exists = os.path.exists(routing_file)
-    # When a transitional state was first seen, so a stuck CONNECTING or
-    # DISCONNECTING always resyncs from disk instead of blocking the UI forever.
-    transition_since = None
-    transition_timeout = 90
+    """Publish real tunnel changes without racing an active operation."""
+    last_active = tunnel_is_active()
+    with status_state["lock"]:
+        status_state["vpn_state"] = "CONNECTED" if last_active else "DISCONNECTED"
 
     while True:
         time.sleep(0.5)
-        exists = os.path.exists(routing_file)
-
-        # If state was CONNECTING/DISCONNECTING, we check if it finished
-        current_state = status_state["vpn_state"]
-
-        if current_state in ("CONNECTING", "DISCONNECTING"):
-            if transition_since is None:
-                transition_since = time.time()
-        else:
-            transition_since = None
-
-        changed = False
-        if exists != last_exists:
-            changed = True
-        elif current_state == "CONNECTING" and exists:
-            changed = True
-        elif current_state == "DISCONNECTING" and not exists:
-            changed = True
-        elif transition_since is not None and time.time() - transition_since > transition_timeout:
-            print(f"[Watcher] {current_state} timed out, resyncing state from disk.", flush=True)
-            changed = True
-
+        active = tunnel_is_active()
+        # vpn_connect/vpn_disconnect own transitional states while their CLI
+        # subprocess is running. The watcher only reconciles idle/external changes.
+        if connection_operation_lock.locked():
+            continue
+        desired = "CONNECTED" if active else "DISCONNECTED"
+        with status_state["lock"]:
+            changed = active != last_active or status_state["vpn_state"] != desired
+            if changed:
+                status_state["vpn_state"] = desired
         if changed:
-            status_state["vpn_state"] = "CONNECTED" if exists else "DISCONNECTED"
-            last_exists = exists
-            transition_since = None
+            last_active = active
             notify_status_change()
 
 def run_api_server(port=34115, debug=False, api_token=None):
