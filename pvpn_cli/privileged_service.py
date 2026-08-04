@@ -7,10 +7,8 @@ variables, or arbitrary configuration directories from clients.
 
 from __future__ import annotations
 
-import grp
 import json
 import os
-import pwd
 import shutil
 import socket
 import struct
@@ -18,6 +16,12 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+# The broker itself only runs as root on Linux, but Windows still imports this
+# module for its client-side helpers, and grp/pwd do not exist there.
+if sys.platform == "linux":
+    import grp
+    import pwd
 
 DEFAULT_SOCKET_PATH = "/run/pvpn-next-service/control.sock"
 SERVICE_GROUP = "pvpn-next"
