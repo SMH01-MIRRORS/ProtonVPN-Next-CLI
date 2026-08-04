@@ -90,6 +90,32 @@ class ClientProtocolTest(unittest.TestCase):
             thread.join()
 
 
+class ServiceChildPrivilegeTest(unittest.TestCase):
+    def test_broker_child_never_tries_to_drop_privileges(self):
+        """systemd limits the service's capabilities, so seteuid raises EPERM."""
+        from pvpn_cli.cli import app
+
+        def refuse(*_args, **_kwargs):
+            raise PermissionError(1, "Operation not permitted")
+
+        with mock.patch.dict(
+            os.environ, {"PVPN_SERVICE_CHILD": "1", "SUDO_USER": pwd.getpwuid(os.getuid()).pw_name}
+        ), mock.patch("os.geteuid", return_value=0), mock.patch(
+            "os.seteuid", side_effect=refuse
+        ), mock.patch(
+            "os.setresuid", side_effect=refuse
+        ), mock.patch(
+            "pvpn_cli.cli.app.fix_config_permissions"
+        ), mock.patch(
+            "pvpn_cli.cli.app.ensure_daemon_running"
+        ), mock.patch(
+            "pvpn_cli.cli.app.do_version"
+        ) as version:
+            app.run_cli(["version"])
+
+        version.assert_called_once_with()
+
+
 class ApiBrokerPreferenceTest(unittest.TestCase):
     @mock.patch("pvpn_cli.privileged_service.call_privileged_service", return_value="broker output")
     @mock.patch("pvpn_cli.routing.get_config_dir", return_value="/home/alice/.config/pvpn-next")

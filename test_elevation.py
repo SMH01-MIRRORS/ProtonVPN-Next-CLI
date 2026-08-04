@@ -5,9 +5,20 @@ import unittest
 from unittest import mock
 
 from pvpn_cli.cli.elevation import elevate_command_linux
+from pvpn_cli.privileged_service import PrivilegedServiceUnavailable
 
 
 class LinuxElevationTest(unittest.TestCase):
+    def setUp(self):
+        # These tests cover the interactive fallback, so never touch a broker
+        # that may actually be installed on the developer's machine.
+        patcher = mock.patch(
+            "pvpn_cli.privileged_service.call_privileged_service",
+            side_effect=PrivilegedServiceUnavailable("service not installed"),
+        )
+        self.addCleanup(patcher.stop)
+        patcher.start()
+
     @mock.patch("pvpn_cli.cli.elevation.get_config_dir", return_value="/tmp/pvpn config")
     @mock.patch("shutil.which", side_effect=lambda name: "/usr/bin/sudo" if name == "sudo" else None)
     @mock.patch("os.geteuid", return_value=1000)

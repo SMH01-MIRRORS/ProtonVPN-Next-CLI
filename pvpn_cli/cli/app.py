@@ -61,15 +61,11 @@ def do_version():
 
 
 def run_cli(args_list=None):
-    # Broker children start as root only so they can later perform networking.
-    # Parse configuration and build the connection as the desktop user first;
-    # do_connect/do_disconnect regain euid 0 only for the routing phase.
-    if os.environ.get("PVPN_SERVICE_CHILD") == "1" and os.geteuid() == 0:
-        import pwd
-        service_user = os.environ.get("SUDO_USER")
-        if not service_user or service_user == "root":
-            raise RuntimeError("Privileged service child has no desktop identity")
-        os.seteuid(pwd.getpwnam(service_user).pw_uid)
+    # Broker children run as root, exactly like the historical sudo/doas path.
+    # Dropping euid here is not possible: systemd restricts the service's
+    # capabilities, and the routing phase needs root anyway. Request safety is
+    # enforced by the broker's whitelist and by validating every value that
+    # reaches a privileged command.
     fix_config_permissions()
     parser = argparse.ArgumentParser(description="PVPN Next CLI")
     parser.add_argument("--config-dir", type=str, help="Override default configuration directory")
