@@ -75,6 +75,46 @@ def tunnel_is_active():
     except Exception:
         return False
 
+# Handshake verification state shared by the status endpoints and the watcher.
+handshake_state = {
+    "verified": False,
+    "lock": threading.Lock(),
+}
+
+
+def awg_log_path():
+    from pvpn_cli.routing import get_config_dir
+    return os.path.join(get_config_dir(), "awg.log")
+
+
+def handshake_verification_enabled():
+    """Whether the user requires a real handshake before showing Connected."""
+    from pvpn_cli.handshake import MODE_DISABLED, read_settings
+    try:
+        mode, _timeout = read_settings()
+        return mode != MODE_DISABLED
+    except Exception:
+        return False
+
+
+def tunnel_is_verified():
+    """Tunnel is up and, when required, proven by an AmneziaWG handshake."""
+    if not tunnel_is_active():
+        return False
+    if not handshake_verification_enabled():
+        return True
+    with handshake_state["lock"]:
+        if handshake_state["verified"]:
+            return True
+    # The API may have been restarted while the tunnel was already verified.
+    from pvpn_cli.handshake import handshake_succeeded
+    if handshake_succeeded(awg_log_path()):
+        with handshake_state["lock"]:
+            handshake_state["verified"] = True
+        return True
+    return False
+
+
 # Global traffic state
 traffic_state = {
     "speed_rx": 0,
@@ -532,7 +572,9 @@ def get_current_status_dict():
             except Exception:
                 max_tier = 0
 
-        vpn_active = tunnel_is_active()
+        # Connected is reported only for a tunnel that is really usable: with
+        # verification enabled that means a confirmed AmneziaWG handshake.
+        vpn_active = tunnel_is_verified()
 
         # Logic for current state
         current_state = status_state["vpn_state"]
@@ -573,6 +615,9 @@ def get_current_status_dict():
             "traffic_stats_enabled": db.get_setting("traffic_stats_enabled", "true") == "true",
             "default_connect_strategy": db.get_setting("default_connect_strategy", "best"),
             "default_connect_server": db.get_setting("default_connect_server", ""),
+            "connection_verification_mode": db.get_setting("connection_verification_mode", "handshake"),
+            "handshake_timeout_seconds": db.get_setting("handshake_timeout_seconds", "5"),
+            "handshake_verified": handshake_state["verified"],
             "os": sys.platform
         }
 
@@ -897,6 +942,8 @@ def get_settings():
     db = Database()
     settings = {
         "protocol": "amneziawg",
+        "connection_verification_mode": db.get_setting("connection_verification_mode", "handshake"),
+        "handshake_timeout_seconds": db.get_setting("handshake_timeout_seconds", "5"),
         "obfuscation_enabled": db.get_setting("obfuscation_enabled", "false"),
         "obfuscation_config": db.get_setting("obfuscation_config", "vpn-next-default"),
         "split_tunneling": db.get_setting("split_tunneling", "false"),
@@ -924,10 +971,16 @@ def update_settings():
         "split_tunneling", "custom_dns", "kill_switch", "auto_connect",
         "spoof_country", "allow_lan", "vpn_port", "gui_theme",
         "traffic_stats_enabled", "default_connect_strategy", "default_connect_server",
-        "extended_cert"
+        "extended_cert", "connection_verification_mode", "handshake_timeout_seconds"
     ]
+    from pvpn_cli.handshake import normalize_mode, normalize_timeout
     for key, value in data.items():
         if key in allowed_keys:
+            # Verification values come from the GUI, so clamp them exactly like the CLI does.
+            if key == "connection_verification_mode":
+                value = normalize_mode(value)
+            elif key == "handshake_timeout_seconds":
+                value = normalize_timeout(value)
             db.set_setting(key, str(value).lower() if isinstance(value, bool) else str(value))
 
             # Mimic CLI logging style
@@ -1121,6 +1174,8 @@ def vpn_connect():
 
         with status_state["lock"]:
             status_state["vpn_state"] = "CONNECTING"
+        with handshake_state["lock"]:
+            handshake_state["verified"] = False
         notify_status_change()
 
         connect_args = ["connect", server]
@@ -1141,6 +1196,17 @@ def vpn_connect():
             time.sleep(0.25)
         if not tunnel_is_active():
             raise RuntimeError("The VPN CLI exited, but the awg0 tunnel did not come up")
+
+        # The CLI already waited for the handshake; confirm it here so the GUI
+        # never shows Connected for a tunnel the peer never answered.
+        if handshake_verification_enabled():
+            from pvpn_cli.handshake import read_settings
+            _mode, handshake_timeout = read_settings()
+            deadline = time.time() + handshake_timeout + 2
+            while not tunnel_is_verified() and time.time() < deadline:
+                time.sleep(0.25)
+            if not tunnel_is_verified():
+                raise RuntimeError("The tunnel came up, but the server never answered a handshake")
 
         with status_state["lock"]:
             status_state["vpn_state"] = "CONNECTED"
@@ -1205,6 +1271,8 @@ def vpn_disconnect():
 
         with status_state["lock"]:
             status_state["vpn_state"] = "DISCONNECTED"
+        with handshake_state["lock"]:
+            handshake_state["verified"] = False
         notify_status_change()
         return jsonify({
             "success": True,
@@ -1248,9 +1316,87 @@ def get_logs():
             logs[filename] = "Log file not found."
     return jsonify(logs)
 
+def reconnect_after_handshake_loss():
+    """Rebuild the tunnel after the peer stopped answering handshakes."""
+    db = Database()
+    server = db.get_setting("active_server_name", "") or "default"
+    if not connection_operation_lock.acquire(blocking=False):
+        return
+    try:
+        print(f"-> Handshake lost; reconnecting to {server}", flush=True)
+        with status_state["lock"]:
+            status_state["vpn_state"] = "CONNECTING"
+        with handshake_state["lock"]:
+            handshake_state["verified"] = False
+        notify_status_change()
+        try:
+            run_cli_elevated(["connect", server])
+        except SudoRequiredError:
+            # Without the system service an unattended reconnect cannot elevate.
+            print("[WARNING] Automatic reconnect needs the privileged service; skipping", flush=True)
+        except Exception as exc:
+            print(f"[WARNING] Automatic reconnect failed: {exc}", flush=True)
+    finally:
+        state = "CONNECTED" if tunnel_is_verified() else "DISCONNECTED"
+        with status_state["lock"]:
+            status_state["vpn_state"] = state
+        connection_operation_lock.release()
+        notify_status_change()
+
+
+def handshake_watcher():
+    """Verify the tunnel by handshake and reconnect when the peer goes silent."""
+    from pvpn_cli.handshake import (
+        HEALTH_STALLED,
+        HEALTH_VERIFIED,
+        HandshakeTracker,
+        read_settings,
+    )
+
+    tracker = HandshakeTracker()
+    while True:
+        time.sleep(1)
+        try:
+            if not handshake_verification_enabled():
+                tracker.reset()
+                continue
+
+            _mode, timeout = read_settings()
+            tracker.timeout_seconds = float(timeout)
+
+            if not tunnel_is_active():
+                tracker.reset()
+                with handshake_state["lock"]:
+                    changed = handshake_state["verified"]
+                    handshake_state["verified"] = False
+                if changed:
+                    notify_status_change()
+                continue
+
+            # Connect and disconnect own the tunnel while they run.
+            if connection_operation_lock.locked():
+                continue
+
+            health = tracker.poll(awg_log_path())
+            verified = health == HEALTH_VERIFIED
+            with handshake_state["lock"]:
+                changed = handshake_state["verified"] != verified
+                handshake_state["verified"] = verified
+            if changed:
+                notify_status_change()
+
+            if health == HEALTH_STALLED:
+                # AmneziaWG kept retrying a handshake past the deadline, so the
+                # session was dropped (typically by DPI). Rebuild it.
+                tracker.reset()
+                reconnect_after_handshake_loss()
+        except Exception as exc:
+            print(f"[WARNING] Handshake watcher error: {exc}", flush=True)
+
+
 def status_watcher():
     """Publish real tunnel changes without racing an active operation."""
-    last_active = tunnel_is_active()
+    last_active = tunnel_is_verified()
     with status_state["lock"]:
         status_state["vpn_state"] = "CONNECTED" if last_active else "DISCONNECTED"
 
@@ -1283,6 +1429,10 @@ def run_api_server(port=34115, debug=False, api_token=None):
     # Start status watcher
     watcher = threading.Thread(target=status_watcher, daemon=True)
     watcher.start()
+
+    # Start handshake verification watcher
+    verifier = threading.Thread(target=handshake_watcher, daemon=True)
+    verifier.start()
 
     # Start traffic tracker
     tracker = threading.Thread(target=traffic_tracker, daemon=True)

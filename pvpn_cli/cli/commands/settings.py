@@ -243,6 +243,72 @@ def do_port(port_cmd, value=None):
         print(f"VPN Port set to: {value if value != '0' else 'Auto'}")
 
 
+def do_verification(action: str, value: str = None):
+    """Show or change AmneziaWG handshake verification settings."""
+    from pvpn_cli.handshake import (
+        MAX_TIMEOUT_SECONDS,
+        MIN_TIMEOUT_SECONDS,
+        MODE_DISABLED,
+        MODE_HANDSHAKE,
+        SETTING_MODE,
+        SETTING_TIMEOUT,
+        normalize_mode,
+        normalize_timeout,
+        read_settings,
+    )
+
+    db = Database()
+
+    if action == "show":
+        mode, timeout = read_settings(db)
+        labels = {
+            MODE_DISABLED: "Disabled (interface presence only)",
+            MODE_HANDSHAKE: "Verify handshake only",
+        }
+        print("=== Connection verification ===")
+        print(f"Mode:            {labels[mode]}")
+        print(f"Handshake wait:  {timeout}s before reconnecting")
+        return
+
+    if action == "mode":
+        if value is None:
+            print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} Usage: verification mode <disabled|handshake>")
+            sys.exit(1)
+        requested = value.strip().lower()
+        if requested not in (MODE_DISABLED, MODE_HANDSHAKE):
+            print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} Invalid mode. Use 'disabled' or 'handshake'.")
+            sys.exit(1)
+        mode = normalize_mode(requested)
+        db.set_setting(SETTING_MODE, mode)
+        print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} Connection verification mode set to: {mode}")
+        return
+
+    if action == "timeout":
+        if value is None:
+            print(
+                f"{Colors.FAIL}[ERROR]{Colors.ENDC} Usage: verification timeout "
+                f"<{MIN_TIMEOUT_SECONDS}-{MAX_TIMEOUT_SECONDS}>"
+            )
+            sys.exit(1)
+        try:
+            requested = int(value)
+        except ValueError:
+            print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} The timeout must be a whole number of seconds.")
+            sys.exit(1)
+        seconds = normalize_timeout(requested)
+        if seconds != requested:
+            print(
+                f"{Colors.WARNING}[WARNING]{Colors.ENDC} Clamped to the supported range "
+                f"{MIN_TIMEOUT_SECONDS}-{MAX_TIMEOUT_SECONDS}s."
+            )
+        db.set_setting(SETTING_TIMEOUT, str(seconds))
+        print(f"{Colors.OKGREEN}[SUCCESS]{Colors.ENDC} Handshake timeout set to: {seconds}s")
+        return
+
+    print(f"{Colors.FAIL}[ERROR]{Colors.ENDC} Unknown verification action.")
+    sys.exit(1)
+
+
 def do_gui_theme(theme=None):
     db = Database()
     if theme:

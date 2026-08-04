@@ -326,16 +326,53 @@ def do_connect(server_name: str, awg_str: str, port=None):
     prepared_split_cfg = rm._get_split_config()
     prepared_allow_lan = db.get_setting("allow_lan", "false") == "true"
 
+    from pvpn_cli.handshake import (
+        MAX_CONNECT_ATTEMPTS,
+        MODE_DISABLED,
+        count_handshake_events,
+        read_settings,
+        wait_for_handshake,
+    )
+
+    verification_mode, handshake_timeout = read_settings(db)
+
     try:
-        rm.start_vpn(
-            vpn_ip=entry_ip,
-            engine_path=engine_path,
-            config_path=config_path,
-            log_path=log_path,
-            dns_ips=dns_ips,
-            split_cfg=prepared_split_cfg,
-            db_allow_lan=prepared_allow_lan,
-        )
+        for attempt in range(1, MAX_CONNECT_ATTEMPTS + 1):
+            # Count earlier handshakes so a stale log cannot verify a new tunnel.
+            baseline_successes = count_handshake_events(log_path).successes
+            rm.start_vpn(
+                vpn_ip=entry_ip,
+                engine_path=engine_path,
+                config_path=config_path,
+                log_path=log_path,
+                dns_ips=dns_ips,
+                split_cfg=prepared_split_cfg,
+                db_allow_lan=prepared_allow_lan,
+            )
+
+            if verification_mode == MODE_DISABLED:
+                break
+
+            print(f"-> Waiting up to {handshake_timeout}s for the AmneziaWG handshake...", flush=True)
+            if wait_for_handshake(log_path, handshake_timeout, baseline_successes):
+                print(f"{Colors.OKGREEN}-> Handshake confirmed. The tunnel is verified.{Colors.ENDC}", flush=True)
+                break
+
+            print(
+                f"{Colors.WARNING}[WARNING] No handshake response within {handshake_timeout}s "
+                f"(attempt {attempt}/{MAX_CONNECT_ATTEMPTS}).{Colors.ENDC}",
+                flush=True,
+            )
+            do_disconnect(exit_on_success=False)
+            if attempt == MAX_CONNECT_ATTEMPTS:
+                print(
+                    "[ERROR] The server never answered a handshake. "
+                    "Try another server, port, or AmneziaWG profile.",
+                    flush=True,
+                )
+                sys.exit(1)
+            print("-> Reconnecting to the same server...", flush=True)
+
         if is_windows:
             try:
                 from pvpn_cli.watchdog import Watchdog

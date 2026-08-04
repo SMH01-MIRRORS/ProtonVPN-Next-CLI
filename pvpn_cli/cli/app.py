@@ -45,6 +45,7 @@ from pvpn_cli.cli.commands.settings import (
     do_set_bypass,
     do_set_default_connect,
     do_set_mtu,
+    do_verification,
 )
 from pvpn_cli.cli.commands.split_tunnel import (
     do_exclude_lan,
@@ -208,6 +209,16 @@ def run_cli(args_list=None):
     set_port_parser = port_sub.add_parser("set", help="Set VPN port")
     set_port_parser.add_argument("value", help="Port number (0 for Auto)")
 
+    # Connection verification (AmneziaWG handshake)
+    verification_parser = subparsers.add_parser(
+        "verification",
+        help="Handshake-based connection verification",
+        epilog="Examples:\n  verification show\n  verification mode handshake\n  verification mode disabled\n  verification timeout 5",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    verification_parser.add_argument("action", choices=["show", "mode", "timeout"], help="Action to perform")
+    verification_parser.add_argument("value", nargs="?", help="disabled|handshake for mode, seconds for timeout")
+
     # GUI Theme management
     theme_parser = subparsers.add_parser("gui-theme", help="GUI Theme management")
     theme_parser.add_argument("theme", nargs="?", help="Set GUI theme (system, light, dark, etc.)")
@@ -333,6 +344,8 @@ def run_cli(args_list=None):
         do_register_extended_cert()
     elif args.command == "port":
         do_port(args.port_cmd, getattr(args, "value", None))
+    elif args.command == "verification":
+        do_verification(args.action, args.value)
     elif args.command == "gui-theme":
         do_gui_theme(args.theme)
     elif args.command == "set-default-connect":
