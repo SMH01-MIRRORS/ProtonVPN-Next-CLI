@@ -6,7 +6,30 @@ import tempfile
 import unittest
 from unittest import mock
 
-from pvpn_cli.routing import stage_frozen_engine
+from pvpn_cli.routing import build_linux_engine_launch_command, stage_frozen_engine
+
+
+class LinuxEngineLaunchTest(unittest.TestCase):
+    def test_launch_command_handles_spaces_in_every_path(self):
+        with tempfile.TemporaryDirectory(prefix="pvpn project ") as root:
+            engine = os.path.join(root, "engine with spaces")
+            config = os.path.join(root, "connection config")
+            log = os.path.join(root, "awg output")
+            client_log = os.path.join(root, "client output")
+            with open(engine, "w", encoding="utf-8") as script:
+                script.write('#!/bin/sh\ncat >/dev/null\nprintf "engine:%s" "$2"\n')
+            os.chmod(engine, 0o700)
+            with open(config, "w", encoding="utf-8") as source:
+                source.write("config")
+
+            command = build_linux_engine_launch_command(
+                engine, "1.1.1.1, 1.0.0.1", config, log, client_log
+            )
+            subprocess.run(["sh", "-c", command + "\nwait"], check=True)
+            with open(log, encoding="utf-8") as output:
+                self.assertEqual("engine:1.1.1.1, 1.0.0.1", output.read())
+            with open(client_log, encoding="utf-8") as errors:
+                self.assertEqual("", errors.read())
 
 
 class FrozenEngineStagingTest(unittest.TestCase):

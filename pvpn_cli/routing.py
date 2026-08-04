@@ -9,6 +9,7 @@ import hashlib
 import shutil
 import stat
 import tempfile
+import shlex
 from typing import Optional, List, Tuple
 
 def get_config_dir() -> str:
@@ -40,6 +41,15 @@ def get_config_dir() -> str:
         d = os.path.join(home, ".config/pvpn-next")
     os.makedirs(d, exist_ok=True)
     return d
+
+
+def build_linux_engine_launch_command(engine_path: str, dns_ips: str, config_path: str, log_path: str, client_log_path: str) -> str:
+    """Build a shell-safe background engine launch command."""
+    quote = shlex.quote
+    return (
+        f"nohup {quote(engine_path)} -dns {quote(dns_ips)} "
+        f"< {quote(config_path)} > {quote(log_path)} 2> {quote(client_log_path)} &"
+    )
 
 
 def stage_frozen_engine(engine_path: str, runtime_dir: str = "/run/pvpn-next") -> str:
@@ -365,7 +375,22 @@ done
                     
             if not engine_running:
                 engine_path = stage_frozen_engine(engine_path)
-            engine_cmd = f'ip link delete {awg_iface} 2>/dev/null || true\nnohup {engine_path} -dns "{dns_ips}" < "{config_path}" > "{log_path}" 2> "{client_log_path}" &' if not engine_running else ""
+            engine_cmd = ""
+            if not engine_running:
+                launch_command = build_linux_engine_launch_command(
+                    engine_path, dns_ips, config_path, log_path, client_log_path
+                )
+                engine_cmd = (
+                    f"ip link delete {shlex.quote(awg_iface)} 2>/dev/null || true\n"
+                    f"{launch_command}\n"
+                    "engine_pid=$!\n"
+                    "sleep 0.2\n"
+                    'if ! kill -0 "$engine_pid" 2>/dev/null; then\n'
+                    '    echo "[ERROR] VPN engine exited immediately after launch." >&2\n'
+                    f"    cat {shlex.quote(client_log_path)} >&2\n"
+                    "    exit 1\n"
+                    "fi"
+                )
             script = f"""
 {engine_cmd}
 # Wait for the userspace engine to create its TUN interface.
@@ -374,7 +399,7 @@ for i in $(seq 1 30); do
     sleep 0.5
 done
 if ! ip link show {awg_iface} >/dev/null 2>&1; then
-    cat "{client_log_path}" >&2
+    cat {shlex.quote(client_log_path)} >&2
     exit 1
 fi
 ip -6 route add default dev {awg_iface} metric 1 2>/dev/null || true
