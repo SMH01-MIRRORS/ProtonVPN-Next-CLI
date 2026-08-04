@@ -310,9 +310,20 @@ def run_cli_elevated(args, sudo_password=None):
         try:
             check_cmd = [elevate_bin, "-n", "true"]
             if subprocess.run(check_cmd, env=env, capture_output=True).returncode == 0:
-                subprocess.Popen([elevate_bin, "-n"] + full_cmd, env=env)
-                return
-        except Exception: pass
+                # Use run() instead of Popen() to wait for completion and capture output.
+                # Backgrounding here causes race conditions and UI state desync.
+                res = subprocess.run([elevate_bin, "-n"] + full_cmd, env=env, capture_output=True, text=True)
+                if res.returncode != 0:
+                    err = res.stderr or res.stdout or f"Elevated command failed with code {res.returncode}"
+                    raise Exception(err)
+                return res.stdout
+        except Exception as e:
+            # If it's not a generic exception we just raised, it might be that sudo -n failed
+            # (expected if password required). In that case, we proceed to password prompt.
+            if "Elevated command failed" not in str(e):
+                pass
+            else:
+                raise e
 
         # Password is required
         if not sudo_password:
@@ -1088,10 +1099,12 @@ def vpn_connect():
             notify_status_change()
             print(f"-> Active connection found, disconnecting first...", flush=True)
             try:
+                # Use a specific timeout for disconnect to avoid hanging the connect request
                 run_cli_elevated(["disconnect"], sudo_password=data.get("sudo_password"))
             except Exception as de:
                 print(f"[WARNING] Disconnect before reconnect failed: {de}", flush=True)
 
+        # Update state again after potential disconnect
         with status_state["lock"]:
             status_state["vpn_state"] = "CONNECTING"
             
