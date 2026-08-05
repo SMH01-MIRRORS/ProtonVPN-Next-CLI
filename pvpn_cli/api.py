@@ -6,9 +6,12 @@ import json
 import shutil
 import subprocess
 import time
+import traceback
 import urllib.request
+import sentry_sdk
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
+from werkzeug.exceptions import HTTPException
 from pvpn_cli.database import Database
 from pvpn_cli.auth import ProtonAuthApi
 from pvpn_cli.vpn import ProtonVpnApi
@@ -22,6 +25,18 @@ app = Flask(__name__)
 CORS(app)
 
 global_api_token = None
+
+@app.errorhandler(Exception)
+def handle_unhandled_error(e):
+    # The GUI parses every response as JSON, so unhandled failures must not
+    # fall back to the default HTML error page.
+    if isinstance(e, HTTPException):
+        return jsonify({"success": False, "error": e.description}), e.code
+    # Flask skips got_request_exception once a handler is registered, so the
+    # exception is forwarded to Sentry explicitly.
+    sentry_sdk.capture_exception(e)
+    traceback.print_exc()
+    return jsonify({"success": False, "error": str(e)}), 500
 
 @app.before_request
 def check_api_token():
@@ -848,7 +863,6 @@ def get_servers():
 
 @app.route("/api/cert/register", methods=["POST"])
 def register_cert():
-    api = ProtonVpnApi()
     data = request.json or {}
     public_key = data.get("public_key")
     db = Database()
@@ -856,21 +870,24 @@ def register_cert():
     extended_cert = db.get_setting("extended_cert", "false") == "true"
     mode = "persistent" if extended_cert else None
 
-    if not public_key:
-        from pvpn_cli.crypto import ProtonCrypto
-        wg_priv, pem_pub = ProtonCrypto.generate_vpn_keys()
-        public_key = pem_pub
-        db = Database()
-        db.update_certificate(wg_priv, public_key, 0, 0)
-
     try:
+        api = ProtonVpnApi()
+        wg_priv = None
+        if not public_key:
+            from pvpn_cli.crypto import ProtonCrypto
+            wg_priv, public_key = ProtonCrypto.generate_vpn_keys()
+
+        # The stored certificate is only replaced once the API accepted the new
+        # key, otherwise a failed registration would drop a working one.
         response = api.register_cert(public_key, mode=mode)
-        if 'wg_priv' in locals():
+        if wg_priv:
             cert_data = response.get('Certificate', public_key)
             exp = response.get('ExpirationTime', 0)
             ref = response.get('RefreshTime', 0)
             db.update_certificate(wg_priv, cert_data, exp, ref)
         return jsonify({"success": True, "data": response})
+    except ImportError as e:
+        return jsonify({"success": False, "error": f"Missing dependency: {e}"}), 500
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
