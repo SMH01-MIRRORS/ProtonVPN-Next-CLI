@@ -26,6 +26,7 @@ from pvpn_cli.handshake import (
     is_handshake_success,
     normalize_mode,
     normalize_timeout,
+    reset_log,
     wait_for_handshake,
 )
 
@@ -144,6 +145,40 @@ class LogCountingTest(unittest.TestCase):
         self.assertTrue(
             wait_for_handshake(
                 self.log_path, 5, baseline_successes=7, sleep=lambda _s: None, monotonic=lambda: 0.0
+            )
+        )
+
+    def test_reset_log_empties_the_engine_log(self):
+        self.write(ATTEMPT_LINE, SUCCESS_LINE)
+        self.assertTrue(reset_log(self.log_path))
+        self.assertEqual(count_handshake_events(self.log_path), HandshakeCounters(0, 0))
+
+    def test_reset_log_reports_a_log_it_cannot_empty(self):
+        # A directory stands in for an engine still holding the log on Windows.
+        self.assertFalse(reset_log(self.directory.name))
+
+    def test_new_tunnel_answering_one_handshake_is_detected_after_a_reset(self):
+        # Regression: the previous tunnel answered exactly one handshake, the
+        # engine truncated the log when it started and the new tunnel answered
+        # exactly one handshake as well.  A baseline counted from the old log
+        # equals the new count and hides the response, which reported a working
+        # Windows tunnel as dead, so the log is emptied before connecting.
+        self.write(ATTEMPT_LINE, SUCCESS_LINE)
+        stale_baseline = count_handshake_events(self.log_path).successes
+        self.assertTrue(reset_log(self.log_path))
+        self.write(ATTEMPT_LINE, SUCCESS_LINE)
+        self.assertFalse(
+            wait_for_handshake(
+                self.log_path,
+                0,
+                baseline_successes=stale_baseline,
+                sleep=lambda _s: None,
+                monotonic=lambda: 0.0,
+            )
+        )
+        self.assertTrue(
+            wait_for_handshake(
+                self.log_path, 5, baseline_successes=0, sleep=lambda _s: None, monotonic=lambda: 0.0
             )
         )
 

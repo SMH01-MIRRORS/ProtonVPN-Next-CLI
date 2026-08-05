@@ -331,6 +331,7 @@ def do_connect(server_name: str, awg_str: str, port=None):
         MODE_DISABLED,
         count_handshake_events,
         read_settings,
+        reset_log,
         wait_for_handshake,
     )
 
@@ -338,8 +339,16 @@ def do_connect(server_name: str, awg_str: str, port=None):
 
     try:
         for attempt in range(1, MAX_CONNECT_ATTEMPTS + 1):
-            # Count earlier handshakes so a stale log cannot verify a new tunnel.
-            baseline_successes = count_handshake_events(log_path).successes
+            # The engine truncates awg.log when it starts, so the handshakes of
+            # the previous tunnel are gone by the time we would count them.
+            # Empty the log ourselves and treat every response found afterwards
+            # as proof of this tunnel; counting a baseline instead hides the new
+            # handshake whenever the old log held exactly as many responses as
+            # the new tunnel answers.
+            if reset_log(log_path):
+                baseline_successes = 0
+            else:
+                baseline_successes = count_handshake_events(log_path).successes
             rm.start_vpn(
                 vpn_ip=entry_ip,
                 engine_path=engine_path,

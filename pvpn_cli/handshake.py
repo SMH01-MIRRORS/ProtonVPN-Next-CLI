@@ -123,6 +123,27 @@ def handshake_succeeded(log_path: str, baseline_successes: int = 0) -> bool:
     return count_handshake_events(log_path).successes > baseline_successes
 
 
+def reset_log(log_path: str) -> bool:
+    """Empty the engine log so only the next tunnel's handshakes are counted.
+
+    The engine truncates ``awg.log`` every time it starts, so a baseline counted
+    from the previous tunnel cannot be compared with the new one: when the old
+    log ended with exactly as many handshake responses as the new tunnel
+    answers, the fresh response looks like the old one and a working tunnel is
+    reported as dead.  Starting from an empty log removes that ambiguity.
+
+    Returns True when the log is empty afterwards.  An engine that is still
+    shutting down can keep the file open on Windows, so callers have to fall
+    back to a counted baseline when this returns False.
+    """
+    try:
+        with open(log_path, "w", encoding="utf-8"):
+            pass
+        return True
+    except OSError:
+        return False
+
+
 def read_settings(db=None) -> tuple[str, int]:
     """Return the (mode, timeout_seconds) pair configured by the user."""
     if db is None:
