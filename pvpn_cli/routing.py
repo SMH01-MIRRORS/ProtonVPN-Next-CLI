@@ -295,6 +295,9 @@ class RoutingManager:
                     kwargs["creationflags"] = 0x08000200
                     
                     try:
+                        # These rules stay in the registry until deleted and netsh appends
+                        # a duplicate pair on every connect, so clear the old ones first.
+                        self._run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=pvpn-engine"], silent=True)
                         self._run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=pvpn-engine", "dir=in", "action=allow", f"program={engine_path}", "enable=yes"])
                         self._run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=pvpn-engine", "dir=out", "action=allow", f"program={engine_path}", "enable=yes"])
                     except:
@@ -329,31 +332,15 @@ class RoutingManager:
                     self._run_cmd(["route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", "0.0.0.0", "IF", iface_idx])
                     
                     try:
-                        self._run_cmd(["netsh", "interface", "ipv6", "add", "route", "::/0", awg_iface, "metric=1"], silent=True)
+                        # netsh defaults to store=persistent, which would leave a dead
+                        # IPv6 default route in the registry after a crash or a BSOD.
+                        self._run_cmd(["netsh", "interface", "ipv6", "add", "route", "::/0", awg_iface, "metric=1", "store=active"], silent=True)
                     except:
                         pass
                     
                     if dns_list:
                         with open(client_log_path, "a") as f:
-                            try:
-                                # Clean up any stale NRPT rules from old versions
-                                clean_cmd = "Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'PVPN-Next' } | Remove-DnsClientNrptRule -Force"
-                                subprocess.run(["powershell", "-NoProfile", "-Command", clean_cmd], creationflags=0x08000000)
-                                f.write("Cleared any stale NRPT rules.\n")
-                            except Exception as e:
-                                pass
-                                
-                            try:
-                                # Assign custom DNS to Wintun
-                                self._run_cmd(["netsh", "interface", "ipv4", "set", "dnsservers", f'name="{awg_iface}"', "static", dns_list[0], "primary"])
-                                f.write("Set Wintun primary DNS.\n")
-                                if len(dns_list) > 1:
-                                    for idx, dns_ip in enumerate(dns_list[1:], start=2):
-                                        self._run_cmd(["netsh", "interface", "ipv4", "add", "dnsservers", f'name="{awg_iface}"', dns_ip, f"index={idx}"])
-                                        f.write(f"Added secondary DNS: {dns_ip}\n")
-                            except Exception as e:
-                                f.write(f"Exception during Wintun DNS assignment: {e}\n")
-                            f.write("--- End DNS Setup ---\n")
+                            self._windows_apply_dns(awg_iface, dns_list, f)
                 else:
                     self._run_cmd(["route", "ADD", "0.0.0.0", "MASK", "128.0.0.0", awg_ip])
                     self._run_cmd(["route", "ADD", "128.0.0.0", "MASK", "128.0.0.0", awg_ip])
@@ -490,6 +477,87 @@ echo "-> VPN is running in the background. Use 'disconnect' to stop."
                 scanner_cmd = [sys.executable, os.path.realpath(sys.argv[0]), "_pid-scanner"]
                 subprocess.Popen(scanner_cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    def _windows_purge_dns_state(self, awg_iface: str = "awg0", log=None) -> None:
+        """Remove every persistent DNS artefact this app can leave on Windows.
+
+        Runs before the tunnel is configured and again on teardown, so a crash,
+        a taskkill or a BSOD cannot leave the machine pointing at a tunnel DNS
+        that no longer exists. NRPT rules and a persistent IPv6 default route
+        are the dangerous ones, because both are registry policy that survives
+        a reboot and older builds created them, so they are swept here even
+        though the current code never writes either.
+        """
+        clean_cmd = (
+            "Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'PVPN-Next' } "
+            "| Remove-DnsClientNrptRule -ErrorAction SilentlyContinue -Force"
+        )
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", clean_cmd],
+                creationflags=0x08000000,
+                capture_output=True,
+            )
+            if log:
+                log.write("Cleared any stale NRPT rules.\n")
+        except Exception:
+            pass
+
+        for family in ("ipv4", "ipv6"):
+            self._run_cmd(
+                ["netsh", "interface", family, "set", "dnsservers", f"name={awg_iface}", "source=dhcp"],
+                silent=True,
+            )
+
+        for store in ("active", "persistent"):
+            self._run_cmd(
+                ["netsh", "interface", "ipv6", "delete", "route", "::/0", awg_iface, f"store={store}"],
+                silent=True,
+            )
+
+    def _windows_apply_dns(self, awg_iface: str, dns_list: list, log=None) -> None:
+        """Point the tunnel adapter at the VPN DNS servers, and nothing else.
+
+        Windows keeps per-interface DNS in the registry and netsh has no
+        store=active for dnsservers, so this one write cannot be avoided. It is
+        scoped to the Wintun adapter, which the engine destroys when it exits,
+        so the setting dies with the tunnel instead of outliving it. Leak
+        protection is the engine's WFP block, which runs in a dynamic session
+        that the kernel tears down even if the engine crashes.
+        """
+        self._windows_purge_dns_state(awg_iface, log)
+
+        for family, servers in (
+            ("ipv4", [ip for ip in dns_list if ":" not in ip]),
+            ("ipv6", [ip for ip in dns_list if ":" in ip]),
+        ):
+            if not servers:
+                continue
+            try:
+                # register=none keeps the tunnel out of dynamic DNS updates and
+                # validate=no stops netsh from stalling on a server that is not
+                # reachable until routing is in place.
+                self._run_cmd([
+                    "netsh", "interface", family, "set", "dnsservers",
+                    f"name={awg_iface}", "source=static", f"address={servers[0]}",
+                    "register=none", "validate=no",
+                ])
+                if log:
+                    log.write(f"Set tunnel {family} DNS to {servers[0]}.\n")
+                for idx, dns_ip in enumerate(servers[1:], start=2):
+                    self._run_cmd([
+                        "netsh", "interface", family, "add", "dnsservers",
+                        f"name={awg_iface}", f"address={dns_ip}", f"index={idx}",
+                        "validate=no",
+                    ])
+                    if log:
+                        log.write(f"Added secondary {family} DNS: {dns_ip}\n")
+            except Exception as e:
+                if log:
+                    log.write(f"Exception during tunnel DNS assignment: {e}\n")
+
+        if log:
+            log.write("--- End DNS Setup ---\n")
+
     def teardown_routing(self):
         if not os.path.exists(self.state_file):
             return
@@ -522,9 +590,10 @@ echo "-> VPN is running in the background. Use 'disconnect' to stop."
                 self._run_cmd(["route", "DELETE", "0.0.0.0", "MASK", "128.0.0.0"])
                 self._run_cmd(["route", "DELETE", "128.0.0.0", "MASK", "128.0.0.0"])
                 
-                # Cleanup any stale NRPT rule just in case
-                clean_cmd = "Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'PVPN-Next' } | Remove-DnsClientNrptRule -Force"
-                subprocess.run(["powershell", "-NoProfile", "-Command", clean_cmd], creationflags=0x08000000)
+                # Drop the tunnel DNS, the IPv6 default route and any legacy NRPT
+                # policy so nothing this app configured can outlive the tunnel.
+                self._windows_purge_dns_state()
+                self._run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=pvpn-engine"], silent=True)
             else:
                 gw = state.get("gw")
                 iface = state.get("iface")

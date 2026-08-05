@@ -115,5 +115,66 @@ class FrozenEngineStagingTest(unittest.TestCase):
                     stage_frozen_engine(source, runtime_link)
 
 
+class WindowsStatelessDnsTest(unittest.TestCase):
+    def _record(self, action):
+        commands = []
+        with tempfile.TemporaryDirectory() as root, mock.patch.dict(
+            os.environ, {"PVPN_CONFIG_DIR": root}
+        ):
+            manager = RoutingManager("")
+            with mock.patch.object(
+                manager,
+                "_run_cmd",
+                side_effect=lambda cmd, silent=False: commands.append(cmd) or "",
+            ), mock.patch("pvpn_cli.routing.subprocess.run") as run:
+                action(manager)
+                return commands, run
+
+    def test_tunnel_dns_is_never_written_to_the_persistent_store(self):
+        commands, _run = self._record(
+            lambda manager: manager._windows_apply_dns("awg0", ["10.2.0.1", "10.2.0.2"])
+        )
+        configured = [c for c in commands if "source=static" in c]
+        self.assertEqual(1, len(configured))
+        self.assertIn("address=10.2.0.1", configured[0])
+        self.assertIn("register=none", configured[0])
+        self.assertEqual(
+            [
+                "netsh", "interface", "ipv4", "add", "dnsservers",
+                "name=awg0", "address=10.2.0.2", "index=2", "validate=no",
+            ],
+            [c for c in commands if "add" in c and "dnsservers" in c][0],
+        )
+        self.assertEqual([], [c for c in commands if "add" in c and "store=persistent" in c])
+
+    def test_ipv6_servers_are_configured_on_the_ipv6_stack(self):
+        commands, _run = self._record(
+            lambda manager: manager._windows_apply_dns(
+                "awg0", ["10.2.0.1", "2606:4700:4700::1111"]
+            )
+        )
+        configured = [c for c in commands if "source=static" in c]
+        self.assertEqual(2, len(configured))
+        self.assertIn("address=10.2.0.1", [c for c in configured if "ipv4" in c][0])
+        self.assertIn(
+            "address=2606:4700:4700::1111", [c for c in configured if "ipv6" in c][0]
+        )
+
+    def test_purge_clears_state_a_crash_could_have_left_behind(self):
+        commands, run = self._record(lambda manager: manager._windows_purge_dns_state())
+        powershell = " ".join(run.call_args[0][0])
+        self.assertIn("Remove-DnsClientNrptRule", powershell)
+        self.assertNotIn("Add-DnsClientNrptRule", powershell)
+        for family in ("ipv4", "ipv6"):
+            self.assertIn(
+                ["netsh", "interface", family, "set", "dnsservers", "name=awg0", "source=dhcp"],
+                commands,
+            )
+        self.assertIn(
+            ["netsh", "interface", "ipv6", "delete", "route", "::/0", "awg0", "store=persistent"],
+            commands,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
