@@ -257,9 +257,49 @@ def get_country_from_timezone():
     except:
         return get_country_from_locale() or "US"
 
+LOCATION_PROVIDERS = (
+    # ip-api is first because it also returns the country code, but it is plain
+    # HTTP and some networks reset it outright, so HTTPS providers follow.
+    ("http://ip-api.com/json", "query", "countryCode"),
+    ("https://api.myip.com", "ip", "cc"),
+    ("https://ifconfig.co/json", "ip", "country_iso"),
+    ("https://api.ipify.org?format=json", "ip", None),
+)
+
+def fetch_public_location():
+    """Resolve the public IP and country code, trying each provider in turn.
+
+    Returns (ip, country_code, error). An empty ip means every provider failed;
+    the caller keeps the previous value, so a lookup failure never blocks the UI
+    and never clears an address that is still valid.
+    """
+    last_error = None
+    for url, ip_key, cc_key in LOCATION_PROVIDERS:
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": "pvpn-next"})
+            with urllib.request.urlopen(request, timeout=5) as response:
+                data = json.loads(response.read().decode())
+            if not isinstance(data, dict) or data.get("status") == "fail":
+                last_error = "provider rejected the request"
+                continue
+            ip = str(data.get(ip_key) or "")
+            if not ip:
+                last_error = "provider returned no address"
+                continue
+            country_code = str(data.get(cc_key) or "").upper() if cc_key else ""
+            return ip, country_code, None
+        except Exception as e:
+            last_error = e
+    return "", "", last_error
+
 def location_tracker():
-    """Background thread to fetch real IP and country code."""
+    """Background thread to fetch real IP and country code.
+
+    Never on the critical path: the UI renders a masked address until this
+    thread manages to reach a provider.
+    """
     last_vpn_state = None
+    failures = 0
     while True:
         try:
             db = Database()
@@ -279,27 +319,28 @@ def location_tracker():
                 if vpn_active:
                     time.sleep(2) # Give VPN time to stabilize routing
 
-            # Fetch from ip-api (free, no key required)
-            try:
-                with urllib.request.urlopen("http://ip-api.com/json", timeout=5) as response:
-                    data = json.loads(response.read().decode())
-                    if data.get("status") == "success":
-                        new_ip = data.get("query", "")
-                        new_cc = data.get("countryCode", "US")
+            new_ip, new_cc, error = fetch_public_location()
+            if new_ip:
+                with location_state["lock"]:
+                    changed = location_state["real_ip"] != new_ip
+                    location_state["country_code"] = new_cc or location_state["country_code"]
+                    location_state["real_ip"] = new_ip
+                    location_state["last_check"] = time.time()
+                failures = 0
+                if changed or force:
+                    notify_status_change()
+            else:
+                # Only the first failure of a streak is logged: a network that
+                # keeps resetting connections would otherwise flood the log with
+                # one identical line every retry.
+                failures += 1
+                if failures == 1:
+                    print(f"[WARNING] Public IP unavailable, the UI keeps a masked address: {error}", flush=True)
 
-                        with location_state["lock"]:
-                            changed = location_state["real_ip"] != new_ip
-                            location_state["country_code"] = new_cc
-                            location_state["real_ip"] = new_ip
-                            location_state["last_check"] = time.time()
-
-                        if changed or force:
-                            notify_status_change()
-            except Exception as e:
-                print(f"[WARNING] IP location fetch failed: {e}", flush=True)
-
-            # Check every 5 minutes when idle, or more often if no data
-            sleep_time = 300 if location_state["country_code"] else 30
+            # Back off instead of hammering a network that is already failing.
+            with location_state["lock"]:
+                have_ip = bool(location_state["real_ip"])
+            sleep_time = 300 if have_ip else min(30 * (2 ** min(failures, 3)), 300)
             time.sleep(sleep_time)
 
         except Exception:
