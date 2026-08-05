@@ -16,7 +16,7 @@ import (
 	"github.com/amnezia-vpn/amneziawg-go/tun"
 )
 
-func setupInterface(ifaceName string, addr string) error {
+func setupInterface(ifaceName string, addr string, mtu int) error {
 	// Addr is typically in CIDR format, e.g., "10.2.0.2/32"
 	parts := strings.Split(addr, "/")
 	ip := parts[0]
@@ -38,12 +38,37 @@ func setupInterface(ifaceName string, addr string) error {
 			
 		output, err = cmd.CombinedOutput()
 		if err == nil {
+			applyMTU(ifaceName, mtu)
 			return nil
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	
 	return fmt.Errorf("netsh failed to set address after retries: %s (%v)", string(output), err)
+}
+
+// Wintun reports a 65535 byte MTU to Windows until it is told otherwise, while
+// the Registered I/O UDP bind refuses to send anything larger than 2 KiB. That
+// combination lets Windows hand oversized packets to the tunnel, where they die
+// as "Failed to send data packets: short buffer" instead of reaching the peer.
+// Linux is unaffected because there the MTU lands on the device itself.
+func applyMTU(ifaceName string, mtu int) {
+	for _, family := range []string{"ipv4", "ipv6"} {
+		cmd := exec.Command("netsh", "interface", family, "set", "subinterface",
+			ifaceName,
+			fmt.Sprintf("mtu=%d", mtu),
+			"store=active")
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			// IPv6 can be disabled on the adapter, so this stays a warning.
+			fmt.Fprintf(os.Stderr, "[Engine] [WARNING] Failed to set %s MTU to %d: %s (%v)\n",
+				family, mtu, strings.TrimSpace(string(output)), err)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "[Engine] %s MTU for %s set to %d.\n", family, ifaceName, mtu)
+	}
 }
 
 func setupDNSFirewall(tdev tun.Device, dnsList string) {

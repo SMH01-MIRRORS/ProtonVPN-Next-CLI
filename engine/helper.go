@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -37,7 +38,14 @@ func main() {
 	}
 	config := configBuilder.String()
 
-	fmt.Fprintf(os.Stderr, "[Engine] Starting VPN helper for %s (%s)...\n", *ifaceName, *addr)
+	// The CLI writes the user's MTU setting into the tunnel config and UAPI has
+	// no field to carry it, so the value is taken from there before the
+	// interface is created. Without this the setting is silently ignored.
+	if configured := mtuFromConfig(config); configured > 0 {
+		*mtu = configured
+	}
+
+	fmt.Fprintf(os.Stderr, "[Engine] Starting VPN helper for %s (%s, MTU %d)...\n", *ifaceName, *addr, *mtu)
 
 	// 1. Create TUN device
 	tdev, err := tun.CreateTUN(*ifaceName, *mtu)
@@ -51,8 +59,8 @@ func main() {
 		*ifaceName = realName
 	}
 
-	// 2. Setup IP address and bring interface UP using OS-specific setup
-	if err := setupInterface(*ifaceName, *addr); err != nil {
+	// 2. Setup IP address, MTU and bring interface UP using OS-specific setup
+	if err := setupInterface(*ifaceName, *addr, *mtu); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to setup interface: %v\n", err)
 		tdev.Close()
 		os.Exit(2)
@@ -178,6 +186,31 @@ func configToUapi(config string) string {
 		}
 	}
 	return uapi
+}
+
+// The engine takes an MTU flag, but the CLI delivers the user's MTU setting
+// through the tunnel config, so the value is parsed out of there. The bounds
+// reject a nonsensical value instead of handing it to the interface, because
+// the CLI stores whatever the user typed without validating it.
+func mtuFromConfig(config string) int {
+	const (
+		minMTU = 576
+		maxMTU = 1500
+	)
+
+	for _, line := range strings.Split(config, "\n") {
+		parts := strings.SplitN(strings.TrimSpace(line), "=", 2)
+		if len(parts) != 2 || !strings.EqualFold(strings.TrimSpace(parts[0]), "mtu") {
+			continue
+		}
+		value, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil || value < minMTU || value > maxMTU {
+			continue
+		}
+		return value
+	}
+
+	return 0
 }
 
 func toHex(b64 string) string {
