@@ -107,6 +107,32 @@ def stage_frozen_engine(engine_path: str, runtime_dir: str = "/run/pvpn-next") -
     return staged_path
 
 
+def load_split_config() -> dict:
+    """Read split_tunnel.json, the file shared by the CLI and the GUI."""
+    config_path = os.path.join(get_config_dir(), "split_tunnel.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                return loaded
+        except (OSError, ValueError):
+            pass
+    return {"exclude_lan": False, "split_items": []}
+
+
+def split_tunneling_enabled(config=None, db=None) -> bool:
+    """The item list lives in split_tunnel.json, the master switch in the
+    database. Lists created before the switch existed keep working."""
+    from pvpn_cli.database import Database
+
+    raw = (db or Database()).get_setting("split_tunneling")
+    if raw is None:
+        config = load_split_config() if config is None else config
+        return bool(config.get("split_items"))
+    return raw == "true"
+
+
 class RoutingManager:
     def __init__(self, elevate_cmd: str):
         self.elevate_cmd = elevate_cmd
@@ -181,14 +207,17 @@ class RoutingManager:
         return None
 
     def _get_split_config(self):
-        config_path = os.path.join(get_config_dir(), "split_tunnel.json")
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, "r") as f:
-                    return json.load(f)
-            except:
-                pass
-        return {"exclude_lan": False, "split_items": []}
+        config = load_split_config()
+        if not split_tunneling_enabled(config):
+            if config.get("split_items"):
+                print("-> Split tunneling is switched off, so its items are ignored.")
+            return dict(config, split_items=[])
+        if config.get("mode") == "include":
+            # Routing can only keep traffic out of the tunnel. Applying the list
+            # here would route exactly the wrong side, so keep everything in.
+            print("[WARNING] Split tunneling 'include' mode is not supported yet, so all traffic stays in the VPN.")
+            return dict(config, split_items=[])
+        return config
 
     def _resolve_ips(self, items):
         ips = []

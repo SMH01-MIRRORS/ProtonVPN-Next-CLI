@@ -26,16 +26,29 @@ def save_split_tunnel_config(config):
 
 def do_exclude_lan(state):
     config = get_split_tunnel_config()
+    config.setdefault("split_items", [])
     config["exclude_lan"] = (state.lower() == "on")
     save_split_tunnel_config(config)
     print(f"-> Exclude LAN set to: {'ON' if config['exclude_lan'] else 'OFF'}")
 
 def do_split_tunneling(action, value):
+    from pvpn_cli.routing import split_tunneling_enabled
+
     config = get_split_tunnel_config()
-    items = config["split_items"]
-    
+    # Files written by older GUI builds only carry mode/split_items.
+    items = config.setdefault("split_items", [])
+    config.setdefault("exclude_lan", False)
+
+    if action in ("on", "off"):
+        from pvpn_cli.database import Database
+
+        Database().set_setting("split_tunneling", "true" if action == "on" else "false")
+        print(f"-> Split tunneling set to: {action.upper()}")
+        return
+
     if action == "list":
         print("=== Split Tunneling List ===")
+        print(f"Split tunneling: {'ON' if split_tunneling_enabled(config) else 'OFF'}")
         print(f"Exclude LAN: {'ON' if config['exclude_lan'] else 'OFF'}")
         for i, item in enumerate(items):
             print(f"[{i}] {item['type'].upper()}: {item['value']}")

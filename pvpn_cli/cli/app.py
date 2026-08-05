@@ -147,7 +147,7 @@ def run_cli(args_list=None):
     
     # split-tunneling command
     parser_split = subparsers.add_parser("split-tunneling", help="Manage split tunneling for apps, domains, and IPs")
-    parser_split.add_argument("action", choices=["list", "add", "remove"], help="Action to perform")
+    parser_split.add_argument("action", choices=["list", "add", "remove", "on", "off"], help="Action to perform")
     parser_split.add_argument("value", nargs="?", help="Domain, IP, or Absolute Path to app binary (for add/remove)")
     
     # novpn wrapper

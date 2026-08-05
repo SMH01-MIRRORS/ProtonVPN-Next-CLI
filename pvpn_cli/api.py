@@ -995,17 +995,98 @@ def set_bypass():
 
     return jsonify({"success": True, "strategy": strategy})
 
+PREDEFINED_DNS = {
+    "cloudflare": "1.1.1.1, 1.0.0.1",
+    "adguard": "94.140.14.14, 94.140.15.15",
+    "google": "8.8.8.8, 8.8.4.4",
+    "proton": "10.2.0.1",
+}
+
+# Profile holding the server list typed into the GUI DNS screen.
+GUI_DNS_PROFILE = "gui-custom"
+
+
+def load_custom_dns_profiles(db):
+    try:
+        profiles = json.loads(db.get_setting("custom_dns_profiles", "{}"))
+    except (TypeError, ValueError):
+        return {}
+    return profiles if isinstance(profiles, dict) else {}
+
+
+def sync_obfuscation_to_engine(db):
+    """The GUI stores a flag plus a config name, but `connect` reads
+    active_awg_mode/active_awg_config_id. Without this bridge the toggle is
+    written to the database and then ignored by every connection."""
+    if db.get_setting("obfuscation_enabled", "false") != "true":
+        db.set_setting("active_awg_mode", "none")
+        return "-> Obfuscation disabled"
+    name = db.get_setting("obfuscation_config", "vpn-next-default")
+    cfg = db.get_awg_config(name)
+    if not cfg:
+        db.set_setting("active_awg_mode", "none")
+        return f"-> AWG config '{name}' not found, so obfuscation stays disabled"
+    db.set_setting("active_awg_mode", "config")
+    db.set_setting("active_awg_config_id", str(cfg["id"]))
+    return f"-> Obfuscation enabled with AWG config: {cfg['name']}"
+
+
+def sync_dns_to_engine(db):
+    """`connect` resolves DNS through active_dns_profile/custom_dns_profiles,
+    so the raw string from the GUI has to be mapped onto a profile."""
+    raw = (db.get_setting("custom_dns", "") or "").strip()
+    if not raw:
+        db.set_setting("active_dns_profile", "proton")
+        return "-> DNS profile set to: proton (10.2.0.1)"
+    servers = ", ".join(p.strip() for p in raw.replace(";", ",").split(",") if p.strip())
+    for name, known in PREDEFINED_DNS.items():
+        if known.lower() == servers.lower():
+            db.set_setting("active_dns_profile", name)
+            return f"-> DNS profile set to: {name}"
+    profiles = load_custom_dns_profiles(db)
+    profiles[GUI_DNS_PROFILE] = servers
+    db.set_setting("custom_dns_profiles", json.dumps(profiles))
+    db.set_setting("active_dns_profile", GUI_DNS_PROFILE)
+    return f"-> DNS profile set to: {GUI_DNS_PROFILE} ({servers})"
+
+
+def current_obfuscation(db):
+    """Report what `connect` would really use so the GUI cannot show a toggle
+    that contradicts the database, for example after a CLI command."""
+    mode = db.get_setting("active_awg_mode", "none")
+    name = db.get_setting("obfuscation_config", "vpn-next-default")
+    if mode == "config":
+        cfg_id = db.get_setting("active_awg_config_id")
+        cfg = db.get_awg_config(cfg_id) if cfg_id else None
+        return ("true", cfg["name"]) if cfg else ("false", name)
+    if mode == "custom":
+        return "true", name
+    return "false", name
+
+
+def current_custom_dns(db):
+    active = db.get_setting("active_dns_profile", "cloudflare")
+    if active == "proton":
+        return ""
+    if active in PREDEFINED_DNS:
+        return PREDEFINED_DNS[active]
+    return load_custom_dns_profiles(db).get(active, "")
+
+
 @app.route("/api/settings", methods=["GET"])
 def get_settings():
+    from pvpn_cli.routing import split_tunneling_enabled
+
     db = Database()
+    obfuscation_enabled, obfuscation_config = current_obfuscation(db)
     settings = {
         "protocol": "amneziawg",
         "connection_verification_mode": db.get_setting("connection_verification_mode", "handshake"),
         "handshake_timeout_seconds": db.get_setting("handshake_timeout_seconds", "5"),
-        "obfuscation_enabled": db.get_setting("obfuscation_enabled", "false"),
-        "obfuscation_config": db.get_setting("obfuscation_config", "vpn-next-default"),
-        "split_tunneling": db.get_setting("split_tunneling", "false"),
-        "custom_dns": db.get_setting("custom_dns", ""),
+        "obfuscation_enabled": obfuscation_enabled,
+        "obfuscation_config": obfuscation_config,
+        "split_tunneling": "true" if split_tunneling_enabled() else "false",
+        "custom_dns": current_custom_dns(db),
         "kill_switch": db.get_setting("kill_switch", "false"),
         "auto_connect": db.get_setting("auto_connect", "false"),
         "spoof_country": db.get_setting("spoof_country", "false"),
@@ -1055,7 +1136,29 @@ def update_settings():
             print(msg, flush=True)
             messages.append(msg)
 
+    # Mirror GUI-facing keys onto the ones the connection path actually reads.
+    if "obfuscation_enabled" in data or "obfuscation_config" in data:
+        msg = sync_obfuscation_to_engine(db)
+        print(msg, flush=True)
+        messages.append(msg)
+    if "custom_dns" in data:
+        msg = sync_dns_to_engine(db)
+        print(msg, flush=True)
+        messages.append(msg)
+
     return jsonify({"success": True, "messages": messages})
+
+def load_split_config_file(config_path):
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                return loaded
+        except (OSError, ValueError):
+            pass
+    return {}
+
 
 @app.route("/api/settings/split", methods=["GET"])
 def get_split_settings():
@@ -1074,9 +1177,13 @@ def update_split_settings():
     from pvpn_cli.routing import get_config_dir
     data = request.json or {}
     config_path = os.path.join(get_config_dir(), "split_tunnel.json")
+    # The GUI only knows about mode/split_items, so merge instead of replacing:
+    # a plain dump drops CLI-owned keys such as exclude_lan on every save.
+    merged = load_split_config_file(config_path)
+    merged.update(data)
     try:
         with open(config_path, "w") as f:
-            json.dump(data, f)
+            json.dump(merged, f, indent=4)
         msg = f"-> Split Tunneling configuration updated ({len(data.get('split_items', []))} items)"
         print(msg, flush=True)
         return jsonify({"success": True, "message": msg})
