@@ -1,3 +1,4 @@
+import errno
 import os
 import sys
 import locale
@@ -1591,6 +1592,22 @@ def run_api_server(port=34115, debug=False, api_token=None):
     else:
         log.setLevel(logging.ERROR)
 
+    # The GUI's status poll and its event stream are housekeeping, not events
+    # worth a log line each. In debug mode they used to arrive several times a
+    # second and pushed everything else out of the visible scrollback, which is
+    # how an endless run of 401s went unnoticed for so long. Failures still get
+    # through: only successful requests to these two paths are dropped.
+    class _QuietPolling(logging.Filter):
+        NOISY = ('GET /api/status ', 'GET /api/events ')
+
+        def filter(self, record):
+            message = record.getMessage()
+            if ' 200 ' not in message:
+                return True
+            return not any(path in message for path in self.NOISY)
+
+    log.addFilter(_QuietPolling())
+
     # Start status watcher
     watcher = threading.Thread(target=status_watcher, daemon=True)
     watcher.start()
@@ -1608,4 +1625,21 @@ def run_api_server(port=34115, debug=False, api_token=None):
     locator.start()
 
     print(f"Starting API Daemon on port {port} (Debug: {debug})...", flush=True)
-    app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
+    try:
+        app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
+    except OSError as exc:
+        # Losing the bind used to be a bare traceback, which said nothing about
+        # the real situation: a second instance was starting while the first one
+        # still owned the port. The window of that second instance then talked
+        # to the surviving backend with a token it had never issued, and every
+        # request came back 401 for as long as both stayed open.
+        if exc.errno == errno.EADDRINUSE:
+            print(
+                f"[ERROR] Port {port} is already in use, most likely by another "
+                f"ProtonVPN-Next instance. Close it, or pass --port to run a "
+                f"second one alongside it.",
+                file=sys.stderr,
+                flush=True,
+            )
+            sys.exit(1)
+        raise
